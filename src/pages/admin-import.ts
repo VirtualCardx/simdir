@@ -28,6 +28,7 @@ function adminNav(env: Bindings, req: Request, locale: SiteLocale): string {
         <a class="nav-link" href="/admin/operators">${escapeHtml(pick(locale, '供应商', 'Operators'))}</a>
         <a class="nav-link" href="/admin/products">${escapeHtml(pick(locale, '套餐', 'Products'))}</a>
         <a class="nav-link" href="/admin/posts">${escapeHtml(pick(locale, '文章', 'Posts'))}</a>
+        <a class="nav-link" href="/admin/settings">${escapeHtml(pick(locale, '网站设置', 'Settings'))}</a>
         <a class="nav-link" href="/admin/media">${escapeHtml(pick(locale, '媒体', 'Media'))}</a>
         <a class="nav-link" href="/admin/import-export">${escapeHtml(pick(locale, '导入/导出', 'Import / Export'))}</a>
       </div>

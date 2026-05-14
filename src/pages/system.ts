@@ -15,7 +15,7 @@ export async function sitemapXml(env: Bindings): Promise<Response> {
     env.DB.prepare("SELECT slug, updated_at FROM countries WHERE status='published' ORDER BY updated_at DESC").all<{ slug: string; updated_at: string }>(),
     env.DB.prepare("SELECT slug, updated_at FROM operators WHERE status='published' ORDER BY updated_at DESC").all<{ slug: string; updated_at: string }>(),
     env.DB.prepare("SELECT slug, updated_at FROM products WHERE status='published' ORDER BY updated_at DESC").all<{ slug: string; updated_at: string }>(),
-    env.DB.prepare("SELECT slug, updated_at FROM posts WHERE status='published' ORDER BY updated_at DESC").all<{ slug: string; updated_at: string }>(),
+    env.DB.prepare("SELECT slug, MAX(updated_at) as updated_at FROM posts WHERE status='published' GROUP BY slug ORDER BY MAX(updated_at) DESC").all<{ slug: string; updated_at: string }>(),
     env.DB.prepare("SELECT DISTINCT c.slug as slug, MAX(p.updated_at) as updated_at FROM categories c JOIN posts p ON p.category_id=c.id AND p.status='published' GROUP BY c.id, c.slug ORDER BY MAX(p.updated_at) DESC").all<{ slug: string; updated_at: string }>()
   ])
   const origin = env.APP_ORIGIN

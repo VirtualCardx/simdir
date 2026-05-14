@@ -5,6 +5,8 @@ export type HtmlMeta = {
   description: string
   canonical: string
   ogImage?: string
+  keywords?: string
+  faviconHref?: string
   locale?: string
   robots?: string
   jsonLd?: unknown[]
@@ -21,6 +23,8 @@ export function layout(meta: HtmlMeta, body: string, criticalCss: string): strin
   const ogImage = meta.ogImage
     ? `<meta property="og:image" content="${escapeHtml(meta.ogImage)}"><meta name="twitter:image" content="${escapeHtml(meta.ogImage)}">`
     : ''
+  const keywords = meta.keywords ? `<meta name="keywords" content="${escapeHtml(meta.keywords)}">` : ''
+  const favicon = meta.faviconHref ? `<link rel="icon" href="${escapeHtml(meta.faviconHref)}">` : ''
   const locale = meta.locale ?? 'en'
   return `<!doctype html>
 <html lang="${escapeHtml(locale)}">
@@ -37,6 +41,8 @@ export function layout(meta: HtmlMeta, body: string, criticalCss: string): strin
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${escapeHtml(meta.title)}">
   <meta name="twitter:description" content="${escapeHtml(meta.description)}">
+  ${keywords}
+  ${favicon}
   ${robots}
   ${ogImage}
   <style>${criticalCss}</style>
@@ -113,8 +119,25 @@ form{display:grid;gap:0}
 .hint-success{color:var(--primary-strong)!important}
 .table-wrap{overflow:auto;border-radius:16px;border:1px solid var(--border);background:rgba(255,255,255,.7)}
 .toolbar{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 8px}
+.editor-modal{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:20px}
+.editor-modal[hidden]{display:none}
+.editor-modal__backdrop{position:absolute;inset:0;background:rgba(22,52,77,.28);backdrop-filter:blur(4px)}
+.editor-modal__panel{position:relative;z-index:1;width:min(100%,560px);display:grid;gap:14px}
+.editor-modal__header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.editor-modal__body{display:grid;gap:14px}
+.editor-tabs{display:flex;flex-wrap:wrap;gap:8px}
+.editor-tab-panel{display:grid;gap:12px}
 .muted-panel{background:linear-gradient(180deg,rgba(214,236,240,.58),rgba(255,255,255,.9))}
 .section-gap{display:grid;gap:20px}
+.posts-page{gap:16px}
+.posts-section{padding:16px 18px}
+.posts-heading{margin-bottom:10px}
+.posts-intro{margin-bottom:14px}
+.posts-list{list-style:none;padding:0;margin:0;display:grid;gap:12px}
+.posts-item{padding:14px 0;border-top:1px solid var(--border)}
+.posts-item:first-child{padding-top:0;border-top:0}
+.posts-meta{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:6px}
+.posts-excerpt{margin-top:8px}
 .hero-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
 .stat{padding:14px 16px;border-radius:16px;border:1px solid var(--border);background:rgba(255,255,255,.72)}
 .stat strong{display:block;font-size:1.2rem;color:var(--primary-strong)}
@@ -136,6 +159,8 @@ header{padding:10px 0}
 main,footer{padding:16px}
 .hero,.split-grid,.grid,.detail-layout{grid-template-columns:1fr}
 .page-header,.hero{padding:22px}
+.editor-modal{padding:16px}
+.posts-section{padding:14px 16px}
 header nav.nav-shell{gap:12px;padding:0 16px}
 .nav-brand{min-width:0;width:100%}
 .nav-links{width:100%;justify-content:flex-start}

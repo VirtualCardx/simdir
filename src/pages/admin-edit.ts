@@ -7,16 +7,25 @@ import { escapeHtml } from '../lib/seo'
 import { criticalCss, layout } from '../lib/templates'
 import { mediaUrl, putObject } from '../lib/media'
 import { languageSwitchHref, pick, resolveLocale, type SiteLocale } from '../lib/i18n'
+import { getSiteSettings, resolveSiteFaviconUrl, resolveSiteLogoUrl, resolveSiteTagline, resolveSiteTitle } from '../lib/site-settings'
 
 type CountryRow = {
   id: string
   iso2: string
   name: string
+  name_zh: string | null
+  name_en: string | null
   slug: string
   hero_image_key: string | null
   seo_title: string | null
+  seo_title_zh: string | null
+  seo_title_en: string | null
   seo_description: string | null
+  seo_description_zh: string | null
+  seo_description_en: string | null
   content_html: string | null
+  content_html_zh: string | null
+  content_html_en: string | null
   faq_json: string | null
   status: string
   publish_at: string | null
@@ -25,12 +34,20 @@ type CountryRow = {
 type OperatorRow = {
   id: string
   name: string
+  name_zh: string | null
+  name_en: string | null
   slug: string
   website_url: string
   logo_image_key: string | null
   seo_title: string | null
+  seo_title_zh: string | null
+  seo_title_en: string | null
   seo_description: string | null
+  seo_description_zh: string | null
+  seo_description_en: string | null
   content_html: string | null
+  content_html_zh: string | null
+  content_html_en: string | null
   faq_json: string | null
   status: string
   publish_at: string | null
@@ -40,6 +57,8 @@ type ProductRow = {
   id: string
   operator_id: string
   name: string
+  name_zh: string | null
+  name_en: string | null
   slug: string
   country_iso2: string
   days: number
@@ -51,6 +70,8 @@ type ProductRow = {
   price_currency: string
   purchase_url: string
   activation_guide_html: string | null
+  activation_guide_html_zh: string | null
+  activation_guide_html_en: string | null
   status: string
   publish_at: string | null
 }
@@ -78,6 +99,20 @@ type PostRow = {
   publish_at: string | null
 }
 
+type SiteSettingsRow = {
+  site_title: string | null
+  site_title_zh: string | null
+  site_title_en: string | null
+  site_keywords: string | null
+  site_keywords_zh: string | null
+  site_keywords_en: string | null
+  tagline: string | null
+  tagline_zh: string | null
+  tagline_en: string | null
+  logo_image_key: string | null
+  favicon_image_key: string | null
+}
+
 function adminNav(env: Bindings, req: Request, locale: SiteLocale): string {
   const current = new URL(req.url)
   const currentPath = `${current.pathname}${current.search}`
@@ -96,6 +131,7 @@ function adminNav(env: Bindings, req: Request, locale: SiteLocale): string {
         <a class="nav-link" href="/admin/operators">${escapeHtml(pick(locale, '供应商', 'Operators'))}</a>
         <a class="nav-link" href="/admin/products">${escapeHtml(pick(locale, '套餐', 'Products'))}</a>
         <a class="nav-link" href="/admin/posts">${escapeHtml(pick(locale, '文章', 'Posts'))}</a>
+        <a class="nav-link" href="/admin/settings">${escapeHtml(pick(locale, '网站设置', 'Settings'))}</a>
         <a class="nav-link" href="/admin/media">${escapeHtml(pick(locale, '媒体', 'Media'))}</a>
         <a class="nav-link" href="/admin/import-export">${escapeHtml(pick(locale, '导入/导出', 'Import / Export'))}</a>
       </div>
@@ -153,6 +189,13 @@ async function ensureUniqueSlug(env: Bindings, table: string, slug: string, enti
   if (row) throw new Error('Slug already exists')
 }
 
+async function ensureUniquePostSlug(env: Bindings, slug: string, locale: string, entityId: string): Promise<void> {
+  const row = await env.DB.prepare('SELECT id FROM posts WHERE slug=? AND lower(locale) LIKE ? AND id<>? LIMIT 1')
+    .bind(slug, `${locale.toLowerCase()}%`, entityId)
+    .first<{ id: string }>()
+  if (row) throw new Error(`Slug already exists for ${locale}`)
+}
+
 async function ensureUniqueCountryIso2(env: Bindings, iso2: string, entityId: string): Promise<void> {
   const row = await env.DB.prepare('SELECT id FROM countries WHERE iso2=? AND id<>? LIMIT 1').bind(iso2, entityId).first<{ id: string }>()
   if (row) throw new Error('ISO2 already exists')
@@ -192,10 +235,24 @@ function parseIsoOrNull(s: string): string | null {
   return d.toISOString()
 }
 
-function editorBlock(field: string, label: string, value: string): string {
+function editorBlock(field: string, label: string, value: string, options?: { enableImageUpload?: boolean }): string {
   const id = `f_${field}`
   const editorId = `e_${field}`
   const toolbarId = `t_${field}`
+  const statusId = `s_${field}`
+  const modalId = `m_${field}`
+  const tabsId = `img_tabs_${field}`
+  const externalPanelId = `img_external_${field}`
+  const uploadPanelId = `img_upload_${field}`
+  const urlId = `img_url_${field}`
+  const altId = `img_alt_${field}`
+  const sizeId = `img_size_${field}`
+  const alignId = `img_align_${field}`
+  const insertId = `img_insert_${field}`
+  const uploadPickerId = `img_upload_picker_${field}`
+  const uploadButtonId = `img_upload_btn_${field}`
+  const closeId = `img_close_${field}`
+  const enableImageUpload = options?.enableImageUpload === true
   return `
     <label><small>${escapeHtml(label)}</small></label>
     <div id="${escapeHtml(toolbarId)}" class="toolbar">
@@ -205,7 +262,53 @@ function editorBlock(field: string, label: string, value: string): string {
       <button class="btn" type="button" data-cmd="formatBlock" data-arg="h2">H2</button>
       <button class="btn" type="button" data-cmd="formatBlock" data-arg="h3">H3</button>
       <button class="btn" type="button" data-cmd="createLink">Link</button>
-      <button class="btn" type="button" data-cmd="insertImage">Image</button>
+      <button class="btn" type="button" data-open-image-dialog="1">Image</button>
+    </div>
+    <div id="${escapeHtml(modalId)}" class="editor-modal" hidden>
+      <div class="editor-modal__backdrop" data-close-modal="1"></div>
+      <div class="editor-modal__panel card" role="dialog" aria-modal="true" aria-label="插入图片">
+        <div class="editor-modal__header">
+          <h3>插入图片</h3>
+          <button id="${escapeHtml(closeId)}" class="btn" type="button">关闭</button>
+        </div>
+        <div class="editor-modal__body">
+          <div id="${escapeHtml(tabsId)}" class="editor-tabs" role="tablist" aria-label="图片来源">
+            <button class="btn primary" type="button" data-tab="external" role="tab" aria-selected="true">外链图片</button>
+            ${enableImageUpload ? `<button class="btn" type="button" data-tab="upload" role="tab" aria-selected="false">上传到 R2</button>` : ''}
+          </div>
+          <div id="${escapeHtml(externalPanelId)}" class="editor-tab-panel">
+            <label><small>外部图片链接</small><input id="${escapeHtml(urlId)}" class="input" placeholder="https://example.com/image.jpg"></label>
+            <div class="action-row">
+              <button id="${escapeHtml(insertId)}" class="btn primary" type="button">插入外链图片</button>
+            </div>
+          </div>
+          ${enableImageUpload ? `<div id="${escapeHtml(uploadPanelId)}" class="editor-tab-panel" hidden>
+            <label><small>上传本地图片</small><input id="${escapeHtml(uploadPickerId)}" class="input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"></label>
+            <div class="action-row">
+              <button id="${escapeHtml(uploadButtonId)}" class="btn primary" type="button">上传图片到 R2 并插入</button>
+            </div>
+          </div>` : ''}
+          <label><small>图片 Alt 文本</small><input id="${escapeHtml(altId)}" class="input" placeholder="请输入图片说明，便于无障碍和 SEO"></label>
+          <div class="split-grid">
+            <label><small>插入尺寸</small>
+              <select id="${escapeHtml(sizeId)}" class="input">
+                <option value="auto">原始尺寸</option>
+                <option value="480">中等宽度（480px）</option>
+                <option value="720" selected>内容宽度（720px）</option>
+                <option value="100%">全宽显示（100%）</option>
+              </select>
+            </label>
+            <label><small>对齐方式</small>
+              <select id="${escapeHtml(alignId)}" class="input">
+                <option value="left">靠左</option>
+                <option value="center" selected>居中</option>
+                <option value="right">靠右</option>
+              </select>
+            </label>
+          </div>
+          <p id="${escapeHtml(statusId)}"><small>${escapeHtml(enableImageUpload ? '支持外链插图，也支持上传图片到 Cloudflare R2 后插入正文。' : '请输入外部图片链接后插入正文。')}</small></p>
+        </div>
+      </div>
     </div>
     <div id="${escapeHtml(editorId)}" contenteditable="true" class="input" style="min-height:220px;white-space:normal"></div>
     <textarea id="${escapeHtml(id)}" class="input" name="${escapeHtml(field)}" style="display:none" rows="10">${escapeHtml(value)}</textarea>
@@ -214,16 +317,225 @@ function editorBlock(field: string, label: string, value: string): string {
         const editor = document.getElementById(${JSON.stringify(editorId)})
         const textarea = document.getElementById(${JSON.stringify(id)})
         const toolbar = document.getElementById(${JSON.stringify(toolbarId)})
+        const status = document.getElementById(${JSON.stringify(statusId)})
+        const modal = document.getElementById(${JSON.stringify(modalId)})
+        const tabs = document.getElementById(${JSON.stringify(tabsId)})
+        const externalPanel = document.getElementById(${JSON.stringify(externalPanelId)})
+        const uploadPanel = document.getElementById(${JSON.stringify(uploadPanelId)})
+        const imageUrlInput = document.getElementById(${JSON.stringify(urlId)})
+        const imageAltInput = document.getElementById(${JSON.stringify(altId)})
+        const imageSizeInput = document.getElementById(${JSON.stringify(sizeId)})
+        const imageAlignInput = document.getElementById(${JSON.stringify(alignId)})
+        const insertButton = document.getElementById(${JSON.stringify(insertId)})
+        const uploadPicker = document.getElementById(${JSON.stringify(uploadPickerId)})
+        const uploadButton = document.getElementById(${JSON.stringify(uploadButtonId)})
+        const closeButton = document.getElementById(${JSON.stringify(closeId)})
         if (!(editor && textarea && toolbar)) return
         editor.innerHTML = textarea.value || ''
         const sync = () => { textarea.value = editor.innerHTML }
+        let savedRange = null
+        let currentTab = 'external'
+        const saveSelection = () => {
+          const sel = window.getSelection()
+          if (!sel || sel.rangeCount === 0) return
+          const range = sel.getRangeAt(0)
+          if (!editor.contains(range.commonAncestorContainer)) return
+          savedRange = range.cloneRange()
+        }
+        const restoreSelection = () => {
+          const sel = window.getSelection()
+          if (!sel || !savedRange) return
+          sel.removeAllRanges()
+          sel.addRange(savedRange)
+        }
+        const moveCaretToEnd = () => {
+          const sel = window.getSelection()
+          if (!sel) return
+          const range = document.createRange()
+          range.selectNodeContents(editor)
+          range.collapse(false)
+          sel.removeAllRanges()
+          sel.addRange(range)
+          savedRange = range.cloneRange()
+        }
+        const openModal = () => {
+          if (!(modal instanceof HTMLElement)) return
+          modal.hidden = false
+          document.body.style.overflow = 'hidden'
+          switchTab('external')
+        }
+        const closeModal = () => {
+          if (!(modal instanceof HTMLElement)) return
+          modal.hidden = true
+          document.body.style.overflow = ''
+          editor.focus()
+          restoreSelection()
+        }
+        const setStatus = (message, isError) => {
+          if (!(status instanceof HTMLElement)) return
+          status.innerHTML = '<small' + (isError ? ' style="color:#8e3f34"' : ' class="hint-success"') + '>' + message + '</small>'
+        }
+        const setPanelEnabled = (panel, enabled) => {
+          if (!(panel instanceof HTMLElement)) return
+          const fields = panel.querySelectorAll('input, button, select, textarea')
+          fields.forEach((field) => {
+            if (field instanceof HTMLInputElement || field instanceof HTMLButtonElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement) {
+              field.disabled = !enabled
+            }
+          })
+        }
+        const switchTab = (tab) => {
+          currentTab = tab === 'upload' ? 'upload' : 'external'
+          if (externalPanel instanceof HTMLElement) externalPanel.hidden = tab !== 'external'
+          if (uploadPanel instanceof HTMLElement) uploadPanel.hidden = tab !== 'upload'
+          setPanelEnabled(externalPanel, currentTab === 'external')
+          setPanelEnabled(uploadPanel, currentTab === 'upload')
+          if (tabs instanceof HTMLElement) {
+            const buttons = tabs.querySelectorAll('button[data-tab]')
+            buttons.forEach((button) => {
+              if (!(button instanceof HTMLButtonElement)) return
+              const active = button.getAttribute('data-tab') === currentTab
+              button.classList.toggle('primary', active)
+              button.setAttribute('aria-selected', active ? 'true' : 'false')
+            })
+          }
+          if (currentTab === 'upload') {
+            if (imageUrlInput instanceof HTMLInputElement) imageUrlInput.value = ''
+            if (uploadPicker instanceof HTMLInputElement) window.setTimeout(() => uploadPicker.focus(), 0)
+            setStatus('上传图片后会按当前尺寸和对齐方式插入正文。', false)
+            return
+          }
+          if (uploadPicker instanceof HTMLInputElement) uploadPicker.value = ''
+          if (imageUrlInput instanceof HTMLInputElement) window.setTimeout(() => imageUrlInput.focus(), 0)
+          setStatus(${JSON.stringify(enableImageUpload ? '支持外链插图，也支持上传图片到 Cloudflare R2 后插入正文。' : '请输入外部图片链接后插入正文。')}, false)
+        }
+        const escapeAttr = (value) => String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+        const getImageStyle = () => {
+          const size = imageSizeInput instanceof HTMLSelectElement ? imageSizeInput.value : '720'
+          if (size === 'auto') return 'max-width:100%;height:auto;'
+          if (size === '100%') return 'width:100%;height:auto;'
+          return 'width:min(100%,' + size + 'px);height:auto;'
+        }
+        const getImageAlignmentStyle = () => {
+          const align = imageAlignInput instanceof HTMLSelectElement ? imageAlignInput.value : 'center'
+          if (align === 'left') return 'display:block;margin:0 auto 0 0;'
+          if (align === 'right') return 'display:block;margin:0 0 0 auto;'
+          return 'display:block;margin:0 auto;'
+        }
+        const buildImageHtml = (url) => {
+          const alt = imageAltInput instanceof HTMLInputElement ? imageAltInput.value.trim() : ''
+          const style = getImageStyle() + getImageAlignmentStyle()
+          return '<img src="' + escapeAttr(url) + '" alt="' + escapeAttr(alt) + '" style="' + escapeAttr(style) + '">'
+        }
+        const insertHtmlAtCursor = (html) => {
+          editor.focus()
+          restoreSelection()
+          const sel = window.getSelection()
+          let range = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null
+          if (!range || !editor.contains(range.commonAncestorContainer)) {
+            moveCaretToEnd()
+            const currentSel = window.getSelection()
+            range = currentSel && currentSel.rangeCount > 0 ? currentSel.getRangeAt(0) : null
+          }
+          if (!range) {
+            editor.insertAdjacentHTML('beforeend', html)
+            sync()
+            moveCaretToEnd()
+            return
+          }
+          range.deleteContents()
+          const wrapper = document.createElement('div')
+          wrapper.innerHTML = html
+          const fragment = document.createDocumentFragment()
+          let lastNode = null
+          while (wrapper.firstChild) {
+            lastNode = fragment.appendChild(wrapper.firstChild)
+          }
+          range.insertNode(fragment)
+          if (lastNode) {
+            range = document.createRange()
+            range.setStartAfter(lastNode)
+            range.collapse(true)
+            if (sel) {
+              sel.removeAllRanges()
+              sel.addRange(range)
+            }
+            savedRange = range.cloneRange()
+          }
+          sync()
+        }
+        const insertImageByUrl = (url) => {
+          if (!url) {
+            setStatus('请输入图片链接。', true)
+            return
+          }
+          try {
+            const parsed = new URL(url, window.location.origin)
+            if (!/^https?:$/i.test(parsed.protocol)) {
+              setStatus('图片链接只支持 http 或 https。', true)
+              return
+            }
+            insertHtmlAtCursor(buildImageHtml(parsed.toString()))
+          } catch {
+            setStatus('请输入有效的图片链接。', true)
+            return
+          }
+          setStatus('图片已插入正文。', false)
+          closeModal()
+        }
+        const uploadAndInsertImage = async () => {
+          if (!(uploadPicker instanceof HTMLInputElement)) return
+          const file = uploadPicker.files && uploadPicker.files[0]
+          if (!file) {
+            setStatus('请先选择要上传的图片。', true)
+            return
+          }
+          setStatus('正在上传图片到 R2...', false)
+          const formData = new FormData()
+          formData.append('file', file)
+          try {
+            const res = await fetch('/api/admin/media/upload', {
+              method: 'POST',
+              credentials: 'same-origin',
+              body: formData
+            })
+            const data = await res.json().catch(() => null)
+            if (!res.ok || !data || !data.url) {
+              throw new Error((data && data.error) || '上传失败')
+            }
+            insertHtmlAtCursor(buildImageHtml(data.url))
+            setStatus('图片已上传并插入正文。', false)
+            closeModal()
+          } catch (error) {
+            setStatus((error && error.message) ? error.message : '上传失败，请重试。', true)
+          } finally {
+            uploadPicker.value = ''
+          }
+        }
         editor.addEventListener('input', sync)
+        editor.addEventListener('mouseup', saveSelection)
+        editor.addEventListener('keyup', saveSelection)
+        editor.addEventListener('blur', saveSelection)
         toolbar.addEventListener('click', (e) => {
           const t = e.target
           if (!(t instanceof HTMLElement)) return
-          const cmd = t.getAttribute('data-cmd')
+          const button = t.closest('button')
+          if (!(button instanceof HTMLButtonElement)) return
+          if (button.hasAttribute('data-open-image-dialog')) {
+            e.preventDefault()
+            saveSelection()
+            openModal()
+            return
+          }
+          const cmd = button.getAttribute('data-cmd')
           if (!cmd) return
           e.preventDefault()
+          editor.focus()
+          restoreSelection()
           if (cmd === 'createLink') {
             const url = prompt('URL')
             if (!url) return
@@ -231,16 +543,64 @@ function editorBlock(field: string, label: string, value: string): string {
             sync();
             return
           }
-          if (cmd === 'insertImage') {
-            const url = prompt('Image URL')
-            if (!url) return
-            document.execCommand('insertImage', false, url)
-            sync();
-            return
-          }
-          const arg = t.getAttribute('data-arg')
+          const arg = button.getAttribute('data-arg')
           document.execCommand(cmd, false, arg)
           sync()
+        })
+        if (insertButton instanceof HTMLButtonElement) {
+          insertButton.addEventListener('click', () => {
+            const url = imageUrlInput instanceof HTMLInputElement ? imageUrlInput.value.trim() : ''
+            insertImageByUrl(url)
+          })
+        }
+        if (uploadButton instanceof HTMLButtonElement) {
+          uploadButton.addEventListener('click', () => {
+            uploadAndInsertImage()
+          })
+        }
+        if (tabs instanceof HTMLElement) {
+          tabs.addEventListener('click', (event) => {
+            const target = event.target
+            if (!(target instanceof HTMLElement)) return
+            const button = target.closest('button[data-tab]')
+            if (!(button instanceof HTMLButtonElement)) return
+            event.preventDefault()
+            switchTab(button.getAttribute('data-tab') || 'external')
+          })
+        }
+        if (imageUrlInput instanceof HTMLInputElement) {
+          imageUrlInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              insertImageByUrl(imageUrlInput.value.trim())
+            }
+          })
+        }
+        if (uploadPicker instanceof HTMLInputElement) {
+          uploadPicker.addEventListener('change', () => {
+            if (!(uploadPicker.files && uploadPicker.files[0])) {
+              setStatus('请先选择要上传的图片。', true)
+              return
+            }
+            setStatus('已选择图片，点击“上传图片到 R2 并插入”开始上传。', false)
+          })
+        }
+        if (closeButton instanceof HTMLButtonElement) {
+          closeButton.addEventListener('click', () => {
+            closeModal()
+          })
+        }
+        if (modal instanceof HTMLElement) {
+          modal.addEventListener('click', (event) => {
+            const target = event.target
+            if (!(target instanceof HTMLElement)) return
+            if (target.hasAttribute('data-close-modal')) closeModal()
+          })
+        }
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape' && modal instanceof HTMLElement && !modal.hidden) {
+            closeModal()
+          }
         })
         const form = editor.closest('form')
         if (form) form.addEventListener('submit', sync)
@@ -251,6 +611,190 @@ function editorBlock(field: string, label: string, value: string): string {
 
 function jsonTextarea(field: string, label: string, value: string, rows: number): string {
   return `<label><small>${escapeHtml(label)}</small><textarea class="input" name="${escapeHtml(field)}" rows="${rows}">${escapeHtml(value)}</textarea></label>`
+}
+
+function twoLocaleFields(
+  zhTitle: string,
+  zhBody: string,
+  enTitle: string,
+  enBody: string,
+  options?: { compact?: boolean }
+): string {
+  const sectionClass = options?.compact ? 'split-grid bilingual-grid' : 'split-grid'
+  return `<div class="${sectionClass}">
+    <section class="card">
+      <h2>${escapeHtml(zhTitle)}</h2>
+      ${zhBody}
+    </section>
+    <section class="card">
+      <h2>${escapeHtml(enTitle)}</h2>
+      ${enBody}
+    </section>
+  </div>`
+}
+
+function resolveLocaleText(locale: SiteLocale, zh: string | null | undefined, en: string | null | undefined, fallback = ''): string {
+  const primary = locale === 'zh' ? zh : en
+  const secondary = locale === 'zh' ? en : zh
+  return (primary ?? '').trim() || (secondary ?? '').trim() || fallback
+}
+
+export async function adminSiteSettingsPage(env: Bindings, req: Request): Promise<Response> {
+  const user = await requireAdmin(env, req)
+  if (!user) return redirect('/admin/login')
+  const locale = resolveLocale(req)
+  const canonical = new URL('/admin/settings', env.APP_ORIGIN).toString()
+  const url = new URL(req.url)
+  const success = url.searchParams.get('success')
+  const error = url.searchParams.get('error')
+  const uploaded = url.searchParams.get('uploaded')
+  const settings = await getSiteSettings(env)
+  const title = resolveSiteTitle(env, settings, locale)
+  const tagline = resolveSiteTagline(settings, locale, '内容发布与素材管理后台')
+  const logoUrl = resolveSiteLogoUrl(env, settings)
+  const faviconUrl = resolveSiteFaviconUrl(env, settings)
+  const body = `
+  ${adminNav(env, req, locale)}
+  <main>
+    <h1>网站设置</h1>
+    ${success ? `<section class="card notice success"><strong>保存成功</strong><p>网站设置已更新${uploaded === 'logo' ? '，站点 Logo 已同步上传。' : uploaded === 'favicon' ? '，地址栏图标已同步上传。' : uploaded === 'both' ? '，Logo 与地址栏图标已同步上传。' : '。'}</p></section>` : ''}
+    ${error ? `<section class="card notice error"><strong>保存失败</strong><p>${escapeHtml(error)}</p></section>` : ''}
+    <section class="card muted-panel">
+      <div class="admin-actions">
+        <a class="btn" href="/admin">返回概览</a>
+        <a class="btn" href="/" target="_blank" rel="noopener">预览前台</a>
+      </div>
+    </section>
+    <section class="card">
+      <form method="POST" action="/admin/settings" enctype="multipart/form-data">
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <label><small>网站标题（中文）</small><input class="input" name="site_title_zh" value="${escapeHtml(settings.siteTitleZh)}" required></label>
+          <label><small>网站标题（English）</small><input class="input" name="site_title_en" value="${escapeHtml(settings.siteTitleEn)}" required></label>
+          <label><small>网站 Tagline（中文）</small><input class="input" name="tagline_zh" value="${escapeHtml(settings.taglineZh)}" placeholder="全球旅行上网指南"></label>
+          <label><small>网站 Tagline（English）</small><input class="input" name="tagline_en" value="${escapeHtml(settings.taglineEn)}" placeholder="Global travel connectivity guide"></label>
+          <label><small>网站主题词（中文）</small><input class="input" name="site_keywords_zh" value="${escapeHtml(settings.siteKeywordsZh)}" placeholder="eSIM, 境外流量, 旅行上网"></label>
+          <label><small>网站主题词（English）</small><input class="input" name="site_keywords_en" value="${escapeHtml(settings.siteKeywordsEn)}" placeholder="eSIM, travel, data plan"></label>
+          <label><small>站点域名</small><input class="input" value="${escapeHtml(env.APP_ORIGIN)}" disabled></label>
+        </div>
+        <div style="height:12px"></div>
+        <input type="hidden" name="current_logo_image_key" value="${escapeHtml(settings.logoImageKey ?? '')}">
+        <label><small>网站 Logo 上传到 R2</small><input class="input" type="file" name="logo_file" accept="image/png,image/jpeg,image/webp,image/svg+xml"></label>
+        ${settings.logoImageKey ? `<div style="height:8px"></div><p><small>当前 Logo R2 key：</small> <code>${escapeHtml(settings.logoImageKey)}</code></p>` : '<p><small>未上传 Logo，保存时如选择图片将自动上传到 R2。</small></p>'}
+        <div style="height:8px"></div>
+        <img id="site-logo-preview" src="${escapeHtml(logoUrl ?? '')}" alt="${escapeHtml(title)} logo" width="160" height="160" loading="lazy" style="width:160px;height:160px;border-radius:16px;border:1px solid var(--b);object-fit:cover;${logoUrl ? '' : 'display:none;'}" />
+        <div style="height:16px"></div>
+        <input type="hidden" name="current_favicon_image_key" value="${escapeHtml(settings.faviconImageKey ?? '')}">
+        <label><small>网站地址栏图标上传到 R2</small><input class="input" type="file" name="favicon_file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/x-icon,image/vnd.microsoft.icon"></label>
+        ${settings.faviconImageKey ? `<div style="height:8px"></div><p><small>当前 favicon R2 key：</small> <code>${escapeHtml(settings.faviconImageKey)}</code></p>` : '<p><small>未上传 favicon，保存时如选择图片将自动上传到 R2。</small></p>'}
+        <div style="height:8px"></div>
+        <img id="site-favicon-preview" src="${escapeHtml(faviconUrl ?? '')}" alt="${escapeHtml(title)} favicon" width="64" height="64" loading="lazy" style="width:64px;height:64px;border-radius:12px;border:1px solid var(--b);object-fit:cover;${faviconUrl ? '' : 'display:none;'}" />
+        <script>
+          (() => {
+            const bindPreview = (name, previewId) => {
+              const input = document.querySelector('input[name="' + name + '"]')
+              const preview = document.getElementById(previewId)
+              if (!(input instanceof HTMLInputElement) || !(preview instanceof HTMLImageElement)) return
+              input.addEventListener('change', () => {
+                const file = input.files && input.files[0]
+                if (!file) return
+                preview.src = URL.createObjectURL(file)
+                preview.style.display = 'block'
+              })
+            }
+            bindPreview('logo_file', 'site-logo-preview')
+            bindPreview('favicon_file', 'site-favicon-preview')
+          })()
+        </script>
+        <div style="height:16px"></div>
+        <section class="card muted-panel">
+          <h2>当前站点预览</h2>
+          <div class="split-grid">
+            <div class="action-row" style="align-items:center">
+              ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(title)} logo" width="56" height="56" style="width:56px;height:56px;border-radius:14px;border:1px solid var(--b);object-fit:cover">` : '<span class="brand-badge">eSIM</span>'}
+              <div>
+                <strong>${escapeHtml(resolveSiteTitle(env, settings, 'zh'))}</strong>
+                <div><small>${escapeHtml(resolveSiteTagline(settings, 'zh', '全球旅行上网指南'))}</small></div>
+              </div>
+            </div>
+            <div class="action-row" style="align-items:center">
+              ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(title)} logo" width="56" height="56" style="width:56px;height:56px;border-radius:14px;border:1px solid var(--b);object-fit:cover">` : '<span class="brand-badge">eSIM</span>'}
+              <div>
+                <strong>${escapeHtml(resolveSiteTitle(env, settings, 'en'))}</strong>
+                <div><small>${escapeHtml(resolveSiteTagline(settings, 'en', 'Global travel connectivity guide'))}</small></div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <div style="height:12px"></div>
+        <button class="btn primary" type="submit">保存网站设置</button>
+      </form>
+    </section>
+  </main>
+  `
+  return html(
+    layout({ title: `网站设置 | ${title}`, description: '管理站点标题、关键词、Logo 与 favicon。', canonical, robots: 'noindex, nofollow' }, body, criticalCss()),
+    { headers: { 'Cache-Control': 'no-store' } }
+  )
+}
+
+export async function adminSaveSiteSettings(env: Bindings, req: Request): Promise<Response> {
+  const user = await requireAdmin(env, req)
+  if (!user) return unauthorized()
+  const form = await req.formData().catch(() => null)
+  if (!form) return redirect('/admin/settings?error=Invalid%20form')
+  const siteTitleZh = String(form.get('site_title_zh') ?? '').trim()
+  const siteTitleEn = String(form.get('site_title_en') ?? '').trim()
+  const siteKeywordsZh = String(form.get('site_keywords_zh') ?? '').trim()
+  const siteKeywordsEn = String(form.get('site_keywords_en') ?? '').trim()
+  const taglineZh = String(form.get('tagline_zh') ?? '').trim()
+  const taglineEn = String(form.get('tagline_en') ?? '').trim()
+  const currentLogo = String(form.get('current_logo_image_key') ?? '').trim() || null
+  const currentFavicon = String(form.get('current_favicon_image_key') ?? '').trim() || null
+  const logoFile = form.get('logo_file')
+  const faviconFile = form.get('favicon_file')
+  if (!siteTitleZh || !siteTitleEn) return redirect('/admin/settings?error=Missing%20site%20title')
+
+  let logo = currentLogo
+  let favicon = currentFavicon
+  let uploadedLogo = false
+  let uploadedFavicon = false
+  try {
+    if (logoFile instanceof File && logoFile.size > 0) {
+      logo = await uploadImageToR2(env, logoFile, 'site/logo', 'Site logo')
+      uploadedLogo = true
+    }
+    if (faviconFile instanceof File && faviconFile.size > 0) {
+      favicon = await uploadSiteIconToR2(env, faviconFile, 'site/favicon', 'Favicon')
+      uploadedFavicon = true
+    }
+    if (logo) await ensureR2KeyExists(env, logo)
+    if (favicon) await ensureR2KeyExists(env, favicon)
+  } catch (error) {
+    return redirect(`/admin/settings?error=${encodeURIComponent((error as Error).message)}`)
+  }
+
+  await env.DB.prepare(
+    'INSERT INTO site_settings (id, site_title, site_title_zh, site_title_en, site_keywords, site_keywords_zh, site_keywords_en, tagline, tagline_zh, tagline_en, logo_image_key, favicon_image_key, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET site_title=excluded.site_title,site_title_zh=excluded.site_title_zh,site_title_en=excluded.site_title_en,site_keywords=excluded.site_keywords,site_keywords_zh=excluded.site_keywords_zh,site_keywords_en=excluded.site_keywords_en,tagline=excluded.tagline,tagline_zh=excluded.tagline_zh,tagline_en=excluded.tagline_en,logo_image_key=excluded.logo_image_key,favicon_image_key=excluded.favicon_image_key,updated_at=excluded.updated_at'
+  )
+    .bind(
+      'default',
+      siteTitleZh || siteTitleEn,
+      siteTitleZh,
+      siteTitleEn,
+      siteKeywordsZh || siteKeywordsEn || null,
+      siteKeywordsZh || null,
+      siteKeywordsEn || null,
+      taglineZh || taglineEn || null,
+      taglineZh || null,
+      taglineEn || null,
+      logo,
+      favicon,
+      nowIso()
+    )
+    .run()
+
+  const uploaded = uploadedLogo && uploadedFavicon ? 'both' : uploadedLogo ? 'logo' : uploadedFavicon ? 'favicon' : ''
+  return redirect(`/admin/settings?success=saved${uploaded ? `&uploaded=${uploaded}` : ''}`)
 }
 
 export async function adminEditCategoryPage(env: Bindings, req: Request, id: string | null): Promise<Response> {
@@ -354,13 +898,14 @@ async function writeRevision(env: Bindings, actorUserId: string, entityType: str
 export async function adminEditCountryPage(env: Bindings, req: Request, id: string | null): Promise<Response> {
   const user = await requireAdmin(env, req)
   if (!user) return redirect('/admin/login')
+  const locale = resolveLocale(req)
   const url = new URL(req.url)
   const isNew = !id
   const row = isNew
     ? null
     : await dbGet<CountryRow>(
         env.DB,
-        'SELECT id, iso2, name, slug, hero_image_key, seo_title, seo_description, content_html, faq_json, status, publish_at FROM countries WHERE id=?',
+        'SELECT id, iso2, name, name_zh, name_en, slug, hero_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at FROM countries WHERE id=?',
         [id]
       )
   if (!isNew && !row) return redirect('/admin/countries')
@@ -373,17 +918,33 @@ export async function adminEditCountryPage(env: Bindings, req: Request, id: stri
     id: '',
     iso2: '',
     name: '',
+    name_zh: '',
+    name_en: '',
     slug: '',
     hero_image_key: null,
     seo_title: '',
+    seo_title_zh: '',
+    seo_title_en: '',
     seo_description: '',
+    seo_description_zh: '',
+    seo_description_en: '',
     content_html: '',
+    content_html_zh: '',
+    content_html_en: '',
     faq_json: '[]',
     status: 'draft',
     publish_at: null
   }
+  const nameZh = v.name_zh ?? v.name ?? ''
+  const nameEn = v.name_en ?? v.name ?? ''
+  const seoTitleZh = v.seo_title_zh ?? v.seo_title ?? ''
+  const seoTitleEn = v.seo_title_en ?? v.seo_title ?? ''
+  const seoDescZh = v.seo_description_zh ?? v.seo_description ?? ''
+  const seoDescEn = v.seo_description_en ?? v.seo_description ?? ''
+  const contentZh = v.content_html_zh ?? v.content_html ?? ''
+  const contentEn = v.content_html_en ?? v.content_html ?? ''
   const body = `
-  ${adminNav(env, req, resolveLocale(req))}
+  ${adminNav(env, req, locale)}
   <main>
     <h1>${isNew ? '新增国家' : '编辑国家'}</h1>
     ${success ? `<section class="card notice success"><strong>保存成功</strong><p>${escapeHtml(success === 'saved_with_image' ? '国家信息已保存，头图已上传并绑定到当前记录。' : '国家信息已保存。')}</p></section>` : ''}
@@ -393,7 +954,6 @@ export async function adminEditCountryPage(env: Bindings, req: Request, id: stri
         <div class="grid" style="grid-template-columns:1fr 1fr">
           <label><small>ISO2</small><input class="input" name="iso2" value="${escapeHtml(v.iso2)}" required></label>
           <label><small>slug</small><input class="input" name="slug" value="${escapeHtml(v.slug)}" required></label>
-          <label><small>name</small><input class="input" name="name" value="${escapeHtml(v.name)}" required></label>
           <label><small>status</small><select class="input" name="status">${statusOptions(v.status)}</select></label>
         </div>
         <div style="height:12px"></div>
@@ -404,7 +964,7 @@ export async function adminEditCountryPage(env: Bindings, req: Request, id: stri
         ${uploaded === '1' ? `<p><small class="hint-success">本次已上传新的国家头图。</small></p>` : ''}
         ${v.hero_image_key ? `<div style="height:8px"></div><p><small>当前 R2 key：</small> <code>${escapeHtml(v.hero_image_key)}</code></p>` : '<p><small>未上传头图，保存时如选择图片将自动生成 R2 key。</small></p>'}
         <div style="height:8px"></div>
-        <img id="country-hero-preview" src="${escapeHtml(v.hero_image_key ? mediaUrl(env.APP_ORIGIN, v.hero_image_key) : '')}" alt="${escapeHtml(v.name || v.slug)}" width="320" height="180" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover;${v.hero_image_key ? '' : 'display:none;'}" />
+        <img id="country-hero-preview" src="${escapeHtml(v.hero_image_key ? mediaUrl(env.APP_ORIGIN, v.hero_image_key) : '')}" alt="${escapeHtml(resolveLocaleText(locale, nameZh, nameEn, v.slug))}" width="320" height="180" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover;${v.hero_image_key ? '' : 'display:none;'}" />
         <script>
           (() => {
             const input = document.querySelector('input[name="hero_file"]')
@@ -419,13 +979,30 @@ export async function adminEditCountryPage(env: Bindings, req: Request, id: stri
           })()
         </script>
         <div style="height:12px"></div>
-        <label><small>seo_title</small><input class="input" name="seo_title" value="${escapeHtml(v.seo_title ?? '')}"></label>
+        ${twoLocaleFields(
+          '中文内容',
+          `
+            <label><small>国家名称（中文）</small><input class="input" name="name_zh" value="${escapeHtml(nameZh)}" required></label>
+            <div style="height:12px"></div>
+            <label><small>SEO 标题（中文）</small><input class="input" name="seo_title_zh" value="${escapeHtml(seoTitleZh)}"></label>
+            <div style="height:12px"></div>
+            <label><small>SEO 描述（中文）</small><input class="input" name="seo_description_zh" value="${escapeHtml(seoDescZh)}"></label>
+            <div style="height:12px"></div>
+            ${editorBlock('content_html_zh', '国家正文（中文）', contentZh, { enableImageUpload: true })}
+          `,
+          'English Content',
+          `
+            <label><small>Country Name (English)</small><input class="input" name="name_en" value="${escapeHtml(nameEn)}" required></label>
+            <div style="height:12px"></div>
+            <label><small>SEO Title (English)</small><input class="input" name="seo_title_en" value="${escapeHtml(seoTitleEn)}"></label>
+            <div style="height:12px"></div>
+            <label><small>SEO Description (English)</small><input class="input" name="seo_description_en" value="${escapeHtml(seoDescEn)}"></label>
+            <div style="height:12px"></div>
+            ${editorBlock('content_html_en', 'Country Content (English)', contentEn, { enableImageUpload: true })}
+          `
+        )}
         <div style="height:12px"></div>
-        <label><small>seo_description</small><input class="input" name="seo_description" value="${escapeHtml(v.seo_description ?? '')}"></label>
-        <div style="height:12px"></div>
-        ${editorBlock('content_html', 'content_html', v.content_html ?? '')}
-        <div style="height:12px"></div>
-        ${jsonTextarea('faq_json', 'faq_json (FAQPage mainEntity 数组 JSON)', v.faq_json ?? '[]', 6)}
+        ${jsonTextarea('faq_json', 'faq_json（当前仍为通用 JSON）', v.faq_json ?? '[]', 6)}
         <div style="height:12px"></div>
         <button class="btn primary" type="submit">保存</button>
         <a class="btn" href="/admin/countries">返回列表</a>
@@ -451,20 +1028,28 @@ export async function adminSaveCountry(env: Bindings, req: Request, id: string |
   const entityId = id ?? ulid()
   const now = nowIso()
   const iso2 = String(form.get('iso2') ?? '').toLowerCase().trim()
-  const name = String(form.get('name') ?? '').trim()
+  const nameZh = String(form.get('name_zh') ?? '').trim()
+  const nameEn = String(form.get('name_en') ?? '').trim()
   const slug = String(form.get('slug') ?? '').trim()
   const status = String(form.get('status') ?? 'draft').trim()
   const publishAt = String(form.get('publish_at') ?? '').trim() || null
   const currentHero = String(form.get('current_hero_image_key') ?? '').trim() || null
   const heroFile = form.get('hero_file')
-  const seoTitle = String(form.get('seo_title') ?? '').trim() || null
-  const seoDesc = String(form.get('seo_description') ?? '').trim() || null
-  const contentHtml = sanitizeHtmlBasic(String(form.get('content_html') ?? '').trim()) || null
+  const seoTitleZh = String(form.get('seo_title_zh') ?? '').trim() || null
+  const seoTitleEn = String(form.get('seo_title_en') ?? '').trim() || null
+  const seoDescZh = String(form.get('seo_description_zh') ?? '').trim() || null
+  const seoDescEn = String(form.get('seo_description_en') ?? '').trim() || null
+  const contentHtmlZh = sanitizeHtmlBasic(String(form.get('content_html_zh') ?? '').trim()) || null
+  const contentHtmlEn = sanitizeHtmlBasic(String(form.get('content_html_en') ?? '').trim()) || null
   const faqJson = String(form.get('faq_json') ?? '').trim() || '[]'
-  if (!iso2 || !name || !slug) return redirect(entityEditLocation('countries', id, entityId, 'Missing fields'))
+  const name = nameZh || nameEn
+  const seoTitle = seoTitleZh || seoTitleEn
+  const seoDesc = seoDescZh || seoDescEn
+  const contentHtml = contentHtmlZh || contentHtmlEn
+  if (!iso2 || !nameZh || !nameEn || !slug) return redirect(entityEditLocation('countries', id, entityId, 'Missing fields'))
   if (!isValidSlug(slug)) return redirect(entityEditLocation('countries', id, entityId, 'Invalid slug'))
 
-  const existing = await env.DB.prepare('SELECT id, iso2, name, slug, hero_image_key, seo_title, seo_description, content_html, faq_json, status, publish_at FROM countries WHERE id=?')
+  const existing = await env.DB.prepare('SELECT id, iso2, name, name_zh, name_en, slug, hero_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at FROM countries WHERE id=?')
     .bind(entityId)
     .first<CountryRow>()
   if (existing) await writeRevision(env, user.userId, 'countries', entityId, existing)
@@ -493,9 +1078,9 @@ export async function adminSaveCountry(env: Bindings, req: Request, id: string |
 
   const publishedAt = toPublishedAt(status, now)
   await env.DB.prepare(
-    'INSERT INTO countries (id, iso2, name, slug, hero_image_key, seo_title, seo_description, content_html, faq_json, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET iso2=excluded.iso2,name=excluded.name,slug=excluded.slug,hero_image_key=excluded.hero_image_key,seo_title=excluded.seo_title,seo_description=excluded.seo_description,content_html=excluded.content_html,faq_json=excluded.faq_json,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,countries.published_at),updated_at=excluded.updated_at'
+    'INSERT INTO countries (id, iso2, name, name_zh, name_en, slug, hero_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET iso2=excluded.iso2,name=excluded.name,name_zh=excluded.name_zh,name_en=excluded.name_en,slug=excluded.slug,hero_image_key=excluded.hero_image_key,seo_title=excluded.seo_title,seo_title_zh=excluded.seo_title_zh,seo_title_en=excluded.seo_title_en,seo_description=excluded.seo_description,seo_description_zh=excluded.seo_description_zh,seo_description_en=excluded.seo_description_en,content_html=excluded.content_html,content_html_zh=excluded.content_html_zh,content_html_en=excluded.content_html_en,faq_json=excluded.faq_json,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,countries.published_at),updated_at=excluded.updated_at'
   )
-    .bind(entityId, iso2, name, slug, hero, seoTitle, seoDesc, contentHtml, faqJson, status, publishAt, publishedAt, now, now)
+    .bind(entityId, iso2, name, nameZh, nameEn, slug, hero, seoTitle, seoTitleZh, seoTitleEn, seoDesc, seoDescZh, seoDescEn, contentHtml, contentHtmlZh, contentHtmlEn, faqJson, status, publishAt, publishedAt, now, now)
     .run()
 
   await writeAudit(env, user.userId, id ? 'update' : 'create', 'countries', entityId, { slug, status })
@@ -507,13 +1092,14 @@ export async function adminSaveCountry(env: Bindings, req: Request, id: string |
 export async function adminEditOperatorPage(env: Bindings, req: Request, id: string | null): Promise<Response> {
   const user = await requireAdmin(env, req)
   if (!user) return redirect('/admin/login')
+  const locale = resolveLocale(req)
   const url = new URL(req.url)
   const isNew = !id
   const row = isNew
     ? null
     : await dbGet<OperatorRow>(
         env.DB,
-        'SELECT id, name, slug, website_url, logo_image_key, seo_title, seo_description, content_html, faq_json, status, publish_at FROM operators WHERE id=?',
+        'SELECT id, name, name_zh, name_en, slug, website_url, logo_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at FROM operators WHERE id=?',
         [id]
       )
   if (!isNew && !row) return redirect('/admin/operators')
@@ -525,18 +1111,34 @@ export async function adminEditOperatorPage(env: Bindings, req: Request, id: str
   const v = row ?? {
     id: '',
     name: '',
+    name_zh: '',
+    name_en: '',
     slug: '',
     website_url: '',
     logo_image_key: null,
     seo_title: '',
+    seo_title_zh: '',
+    seo_title_en: '',
     seo_description: '',
+    seo_description_zh: '',
+    seo_description_en: '',
     content_html: '',
+    content_html_zh: '',
+    content_html_en: '',
     faq_json: '[]',
     status: 'draft',
     publish_at: null
   }
+  const nameZh = v.name_zh ?? v.name ?? ''
+  const nameEn = v.name_en ?? v.name ?? ''
+  const seoTitleZh = v.seo_title_zh ?? v.seo_title ?? ''
+  const seoTitleEn = v.seo_title_en ?? v.seo_title ?? ''
+  const seoDescZh = v.seo_description_zh ?? v.seo_description ?? ''
+  const seoDescEn = v.seo_description_en ?? v.seo_description ?? ''
+  const contentZh = v.content_html_zh ?? v.content_html ?? ''
+  const contentEn = v.content_html_en ?? v.content_html ?? ''
   const body = `
-  ${adminNav(env, req, resolveLocale(req))}
+  ${adminNav(env, req, locale)}
   <main>
     <h1>${isNew ? '新增供应商' : '编辑供应商'}</h1>
     ${success ? `<section class="card notice success"><strong>保存成功</strong><p>${escapeHtml(success === 'saved_with_logo' ? '供应商信息已保存，logo 已上传并绑定到当前记录。' : '供应商信息已保存。')}</p></section>` : ''}
@@ -544,7 +1146,6 @@ export async function adminEditOperatorPage(env: Bindings, req: Request, id: str
     <section class="card">
       <form method="POST" action="${isNew ? '/admin/operators/new' : `/admin/operators/${escapeHtml(String(id))}`}" enctype="multipart/form-data">
         <div class="grid" style="grid-template-columns:1fr 1fr">
-          <label><small>name</small><input class="input" name="name" value="${escapeHtml(v.name)}" required></label>
           <label><small>slug</small><input class="input" name="slug" value="${escapeHtml(v.slug)}" required></label>
           <label><small>website_url</small><input class="input" name="website_url" value="${escapeHtml(v.website_url)}" required></label>
           <label><small>status</small><select class="input" name="status">${statusOptions(v.status)}</select></label>
@@ -557,7 +1158,7 @@ export async function adminEditOperatorPage(env: Bindings, req: Request, id: str
         ${uploaded === '1' ? `<p><small class="hint-success">本次已上传新的 logo 图片。</small></p>` : ''}
         ${v.logo_image_key ? `<div style="height:8px"></div><p><small>当前 R2 key：</small> <code>${escapeHtml(v.logo_image_key)}</code></p>` : '<p><small>未上传 logo，保存时如选择图片将自动生成 R2 key。</small></p>'}
         <div style="height:8px"></div>
-        <img id="operator-logo-preview" src="${escapeHtml(v.logo_image_key ? mediaUrl(env.APP_ORIGIN, v.logo_image_key) : '')}" alt="${escapeHtml(v.name || v.slug)} logo" width="96" height="96" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover;${v.logo_image_key ? '' : 'display:none;'}" />
+        <img id="operator-logo-preview" src="${escapeHtml(v.logo_image_key ? mediaUrl(env.APP_ORIGIN, v.logo_image_key) : '')}" alt="${escapeHtml(resolveLocaleText(locale, nameZh, nameEn, v.slug))} logo" width="96" height="96" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover;${v.logo_image_key ? '' : 'display:none;'}" />
         <script>
           (() => {
             const input = document.querySelector('input[name="logo_file"]')
@@ -573,13 +1174,30 @@ export async function adminEditOperatorPage(env: Bindings, req: Request, id: str
           })()
         </script>
         <div style="height:12px"></div>
-        <label><small>seo_title</small><input class="input" name="seo_title" value="${escapeHtml(v.seo_title ?? '')}"></label>
+        ${twoLocaleFields(
+          '中文内容',
+          `
+            <label><small>供应商名称（中文）</small><input class="input" name="name_zh" value="${escapeHtml(nameZh)}" required></label>
+            <div style="height:12px"></div>
+            <label><small>SEO 标题（中文）</small><input class="input" name="seo_title_zh" value="${escapeHtml(seoTitleZh)}"></label>
+            <div style="height:12px"></div>
+            <label><small>SEO 描述（中文）</small><input class="input" name="seo_description_zh" value="${escapeHtml(seoDescZh)}"></label>
+            <div style="height:12px"></div>
+            ${editorBlock('content_html_zh', '供应商正文（中文）', contentZh, { enableImageUpload: true })}
+          `,
+          'English Content',
+          `
+            <label><small>Operator Name (English)</small><input class="input" name="name_en" value="${escapeHtml(nameEn)}" required></label>
+            <div style="height:12px"></div>
+            <label><small>SEO Title (English)</small><input class="input" name="seo_title_en" value="${escapeHtml(seoTitleEn)}"></label>
+            <div style="height:12px"></div>
+            <label><small>SEO Description (English)</small><input class="input" name="seo_description_en" value="${escapeHtml(seoDescEn)}"></label>
+            <div style="height:12px"></div>
+            ${editorBlock('content_html_en', 'Operator Content (English)', contentEn, { enableImageUpload: true })}
+          `
+        )}
         <div style="height:12px"></div>
-        <label><small>seo_description</small><input class="input" name="seo_description" value="${escapeHtml(v.seo_description ?? '')}"></label>
-        <div style="height:12px"></div>
-        ${editorBlock('content_html', 'content_html', v.content_html ?? '')}
-        <div style="height:12px"></div>
-        ${jsonTextarea('faq_json', 'faq_json (FAQPage mainEntity 数组 JSON)', v.faq_json ?? '[]', 6)}
+        ${jsonTextarea('faq_json', 'faq_json（当前仍为通用 JSON）', v.faq_json ?? '[]', 6)}
         <div style="height:12px"></div>
         <button class="btn primary" type="submit">保存</button>
         <a class="btn" href="/admin/operators">返回列表</a>
@@ -604,23 +1222,31 @@ export async function adminSaveOperator(env: Bindings, req: Request, id: string 
   if (!form) return badRequest('Invalid form')
   const entityId = id ?? ulid()
   const now = nowIso()
-  const name = String(form.get('name') ?? '').trim()
+  const nameZh = String(form.get('name_zh') ?? '').trim()
+  const nameEn = String(form.get('name_en') ?? '').trim()
   const slug = String(form.get('slug') ?? '').trim()
   const websiteUrl = String(form.get('website_url') ?? '').trim()
   const status = String(form.get('status') ?? 'draft').trim()
   const publishAt = String(form.get('publish_at') ?? '').trim() || null
   const currentLogo = String(form.get('current_logo_image_key') ?? '').trim() || null
   const logoFile = form.get('logo_file')
-  const seoTitle = String(form.get('seo_title') ?? '').trim() || null
-  const seoDesc = String(form.get('seo_description') ?? '').trim() || null
-  const contentHtml = sanitizeHtmlBasic(String(form.get('content_html') ?? '').trim()) || null
+  const seoTitleZh = String(form.get('seo_title_zh') ?? '').trim() || null
+  const seoTitleEn = String(form.get('seo_title_en') ?? '').trim() || null
+  const seoDescZh = String(form.get('seo_description_zh') ?? '').trim() || null
+  const seoDescEn = String(form.get('seo_description_en') ?? '').trim() || null
+  const contentHtmlZh = sanitizeHtmlBasic(String(form.get('content_html_zh') ?? '').trim()) || null
+  const contentHtmlEn = sanitizeHtmlBasic(String(form.get('content_html_en') ?? '').trim()) || null
   const faqJson = String(form.get('faq_json') ?? '').trim() || '[]'
-  if (!name || !slug || !websiteUrl) return redirect(operatorEditLocation(id, entityId, 'Missing fields'))
+  const name = nameZh || nameEn
+  const seoTitle = seoTitleZh || seoTitleEn
+  const seoDesc = seoDescZh || seoDescEn
+  const contentHtml = contentHtmlZh || contentHtmlEn
+  if (!nameZh || !nameEn || !slug || !websiteUrl) return redirect(operatorEditLocation(id, entityId, 'Missing fields'))
   if (!isValidSlug(slug)) return redirect(operatorEditLocation(id, entityId, 'Invalid slug'))
   if (!isValidUrl(websiteUrl)) return redirect(operatorEditLocation(id, entityId, 'Invalid website_url'))
 
   const existing = await env.DB.prepare(
-    'SELECT id, name, slug, website_url, logo_image_key, seo_title, seo_description, content_html, faq_json, status, publish_at FROM operators WHERE id=?'
+    'SELECT id, name, name_zh, name_en, slug, website_url, logo_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at FROM operators WHERE id=?'
   )
     .bind(entityId)
     .first<OperatorRow>()
@@ -648,9 +1274,9 @@ export async function adminSaveOperator(env: Bindings, req: Request, id: string 
     return redirect(operatorEditLocation(id, entityId, (e as Error).message))
   }
   await env.DB.prepare(
-    'INSERT INTO operators (id, name, slug, website_url, logo_image_key, seo_title, seo_description, content_html, faq_json, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,slug=excluded.slug,website_url=excluded.website_url,logo_image_key=excluded.logo_image_key,seo_title=excluded.seo_title,seo_description=excluded.seo_description,content_html=excluded.content_html,faq_json=excluded.faq_json,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,operators.published_at),updated_at=excluded.updated_at'
+    'INSERT INTO operators (id, name, name_zh, name_en, slug, website_url, logo_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,name_zh=excluded.name_zh,name_en=excluded.name_en,slug=excluded.slug,website_url=excluded.website_url,logo_image_key=excluded.logo_image_key,seo_title=excluded.seo_title,seo_title_zh=excluded.seo_title_zh,seo_title_en=excluded.seo_title_en,seo_description=excluded.seo_description,seo_description_zh=excluded.seo_description_zh,seo_description_en=excluded.seo_description_en,content_html=excluded.content_html,content_html_zh=excluded.content_html_zh,content_html_en=excluded.content_html_en,faq_json=excluded.faq_json,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,operators.published_at),updated_at=excluded.updated_at'
   )
-    .bind(entityId, name, slug, websiteUrl, logo, seoTitle, seoDesc, contentHtml, faqJson, status, publishAt, publishedAt, now, now)
+    .bind(entityId, name, nameZh, nameEn, slug, websiteUrl, logo, seoTitle, seoTitleZh, seoTitleEn, seoDesc, seoDescZh, seoDescEn, contentHtml, contentHtmlZh, contentHtmlEn, faqJson, status, publishAt, publishedAt, now, now)
     .run()
 
   await writeAudit(env, user.userId, id ? 'update' : 'create', 'operators', entityId, { slug, status })
@@ -662,13 +1288,14 @@ export async function adminSaveOperator(env: Bindings, req: Request, id: string 
 export async function adminEditProductPage(env: Bindings, req: Request, id: string | null): Promise<Response> {
   const user = await requireAdmin(env, req)
   if (!user) return redirect('/admin/login')
+  const locale = resolveLocale(req)
   const url = new URL(req.url)
   const isNew = !id
   const row = isNew
     ? null
     : await dbGet<ProductRow>(
         env.DB,
-        'SELECT id, operator_id, name, slug, country_iso2, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, activation_guide_html, status, publish_at FROM products WHERE id=?',
+        'SELECT id, operator_id, name, name_zh, name_en, slug, country_iso2, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, activation_guide_html, activation_guide_html_zh, activation_guide_html_en, status, publish_at FROM products WHERE id=?',
         [id]
       )
   if (!isNew && !row) return redirect('/admin/products')
@@ -686,6 +1313,8 @@ export async function adminEditProductPage(env: Bindings, req: Request, id: stri
     id: '',
     operator_id: operatorId,
     name: '',
+    name_zh: '',
+    name_en: '',
     slug: '',
     country_iso2: '',
     days: 7,
@@ -697,12 +1326,18 @@ export async function adminEditProductPage(env: Bindings, req: Request, id: stri
     price_currency: 'USD',
     purchase_url: '',
     activation_guide_html: '',
+    activation_guide_html_zh: '',
+    activation_guide_html_en: '',
     status: 'draft',
     publish_at: null
   }
+  const nameZh = v.name_zh ?? v.name ?? ''
+  const nameEn = v.name_en ?? v.name ?? ''
+  const activationZh = v.activation_guide_html_zh ?? v.activation_guide_html ?? ''
+  const activationEn = v.activation_guide_html_en ?? v.activation_guide_html ?? ''
 
   const body = `
-  ${adminNav(env, req, resolveLocale(req))}
+  ${adminNav(env, req, locale)}
   <main>
     <h1>${isNew ? '新增套餐' : '编辑套餐'}</h1>
     ${success ? `<section class="card notice success"><strong>保存成功</strong><p>套餐信息已保存。</p></section>` : ''}
@@ -716,7 +1351,6 @@ export async function adminEditProductPage(env: Bindings, req: Request, id: stri
         </label>
         <div style="height:12px"></div>
         <div class="grid" style="grid-template-columns:1fr 1fr">
-          <label><small>name</small><input class="input" name="name" value="${escapeHtml(v.name)}" required></label>
           <label><small>slug</small><input class="input" name="slug" value="${escapeHtml(v.slug)}" required></label>
           <label><small>country_iso2</small><input class="input" name="country_iso2" value="${escapeHtml(v.country_iso2)}" required></label>
           <label><small>status</small><select class="input" name="status">${statusOptions(v.status)}</select></label>
@@ -733,7 +1367,20 @@ export async function adminEditProductPage(env: Bindings, req: Request, id: stri
         <div style="height:12px"></div>
         <label><small>publish_at (ISO8601，可空)</small><input class="input" name="publish_at" value="${escapeHtml(v.publish_at ?? '')}"></label>
         <div style="height:12px"></div>
-        ${editorBlock('activation_guide_html', 'activation_guide_html', v.activation_guide_html ?? '')}
+        ${twoLocaleFields(
+          '中文内容',
+          `
+            <label><small>套餐名称（中文）</small><input class="input" name="name_zh" value="${escapeHtml(nameZh)}" required></label>
+            <div style="height:12px"></div>
+            ${editorBlock('activation_guide_html_zh', '激活教程（中文）', activationZh, { enableImageUpload: true })}
+          `,
+          'English Content',
+          `
+            <label><small>Plan Name (English)</small><input class="input" name="name_en" value="${escapeHtml(nameEn)}" required></label>
+            <div style="height:12px"></div>
+            ${editorBlock('activation_guide_html_en', 'Activation Guide (English)', activationEn, { enableImageUpload: true })}
+          `
+        )}
         <div style="height:12px"></div>
         <button class="btn primary" type="submit">保存</button>
         <a class="btn" href="/admin/products">返回列表</a>
@@ -760,7 +1407,8 @@ export async function adminSaveProduct(env: Bindings, req: Request, id: string |
   const now = nowIso()
 
   const operatorId = String(form.get('operator_id') ?? '').trim()
-  const name = String(form.get('name') ?? '').trim()
+  const nameZh = String(form.get('name_zh') ?? '').trim()
+  const nameEn = String(form.get('name_en') ?? '').trim()
   const slug = String(form.get('slug') ?? '').trim()
   const countryIso2 = String(form.get('country_iso2') ?? '').toLowerCase().trim()
   const status = String(form.get('status') ?? 'draft').trim()
@@ -774,8 +1422,11 @@ export async function adminSaveProduct(env: Bindings, req: Request, id: string |
   const priceAmount = Number(String(form.get('price_amount') ?? '0'))
   const priceCurrency = String(form.get('price_currency') ?? '').trim().toUpperCase()
   const purchaseUrl = String(form.get('purchase_url') ?? '').trim()
-  const activation = sanitizeHtmlBasic(String(form.get('activation_guide_html') ?? '').trim()) || null
-  if (!operatorId || !name || !slug || !countryIso2 || !purchaseUrl) return redirect(entityEditLocation('products', id, entityId, 'Missing fields'))
+  const activationZh = sanitizeHtmlBasic(String(form.get('activation_guide_html_zh') ?? '').trim()) || null
+  const activationEn = sanitizeHtmlBasic(String(form.get('activation_guide_html_en') ?? '').trim()) || null
+  const name = nameZh || nameEn
+  const activation = activationZh || activationEn
+  if (!operatorId || !nameZh || !nameEn || !slug || !countryIso2 || !purchaseUrl) return redirect(entityEditLocation('products', id, entityId, 'Missing fields'))
   if (!isValidSlug(slug)) return redirect(entityEditLocation('products', id, entityId, 'Invalid slug'))
   if (!isValidUrl(purchaseUrl)) return redirect(entityEditLocation('products', id, entityId, 'Invalid purchase_url'))
   if (!Number.isFinite(days) || days < 1) return redirect(entityEditLocation('products', id, entityId, 'Invalid days'))
@@ -793,7 +1444,7 @@ export async function adminSaveProduct(env: Bindings, req: Request, id: string |
   }
 
   const existing = await env.DB.prepare(
-    'SELECT id, operator_id, name, slug, country_iso2, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, activation_guide_html, status, publish_at FROM products WHERE id=?'
+    'SELECT id, operator_id, name, name_zh, name_en, slug, country_iso2, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, activation_guide_html, activation_guide_html_zh, activation_guide_html_en, status, publish_at FROM products WHERE id=?'
   )
     .bind(entityId)
     .first<ProductRow>()
@@ -801,12 +1452,14 @@ export async function adminSaveProduct(env: Bindings, req: Request, id: string |
 
   const publishedAt = toPublishedAt(status, now)
   await env.DB.prepare(
-    'INSERT INTO products (id, operator_id, name, slug, country_iso2, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, activation_guide_html, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET operator_id=excluded.operator_id,name=excluded.name,slug=excluded.slug,country_iso2=excluded.country_iso2,days=excluded.days,data_gb=excluded.data_gb,is_unlimited=excluded.is_unlimited,supports_hotspot=excluded.supports_hotspot,network_type=excluded.network_type,price_amount=excluded.price_amount,price_currency=excluded.price_currency,purchase_url=excluded.purchase_url,activation_guide_html=excluded.activation_guide_html,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,products.published_at),updated_at=excluded.updated_at'
+    'INSERT INTO products (id, operator_id, name, name_zh, name_en, slug, country_iso2, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, activation_guide_html, activation_guide_html_zh, activation_guide_html_en, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET operator_id=excluded.operator_id,name=excluded.name,name_zh=excluded.name_zh,name_en=excluded.name_en,slug=excluded.slug,country_iso2=excluded.country_iso2,days=excluded.days,data_gb=excluded.data_gb,is_unlimited=excluded.is_unlimited,supports_hotspot=excluded.supports_hotspot,network_type=excluded.network_type,price_amount=excluded.price_amount,price_currency=excluded.price_currency,purchase_url=excluded.purchase_url,activation_guide_html=excluded.activation_guide_html,activation_guide_html_zh=excluded.activation_guide_html_zh,activation_guide_html_en=excluded.activation_guide_html_en,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,products.published_at),updated_at=excluded.updated_at'
   )
     .bind(
       entityId,
       operatorId,
       name,
+      nameZh,
+      nameEn,
       slug,
       countryIso2,
       days,
@@ -818,6 +1471,8 @@ export async function adminSaveProduct(env: Bindings, req: Request, id: string |
       priceCurrency,
       purchaseUrl,
       activation,
+      activationZh,
+      activationEn,
       status,
       publishAt,
       publishedAt,
@@ -835,6 +1490,7 @@ export async function adminSaveProduct(env: Bindings, req: Request, id: string |
 export async function adminEditPostPage(env: Bindings, req: Request, id: string | null): Promise<Response> {
   const user = await requireAdmin(env, req)
   if (!user) return redirect('/admin/login')
+  const locale = resolveLocale(req)
   const url = new URL(req.url)
   const isNew = !id
   const categories = await dbAll<{ id: string; name: string; slug: string }>(env.DB, 'SELECT id, name, slug FROM categories ORDER BY sort_order ASC, name ASC LIMIT 1000')
@@ -846,11 +1502,19 @@ export async function adminEditPostPage(env: Bindings, req: Request, id: string 
         [id]
       )
   if (!isNew && !row) return redirect('/admin/posts')
+  const pairKey = row ? row.ref_slug ?? row.slug : ''
+  const siblings = row
+    ? await dbAll<PostRow>(
+        env.DB,
+        'SELECT id, category_id, post_type, ref_slug, title, slug, excerpt, content_html, cover_image_key, locale, status, publish_at FROM posts WHERE id=? OR ref_slug=? OR slug=? ORDER BY updated_at DESC LIMIT 4',
+        [row.id, pairKey, pairKey]
+      )
+    : []
   const canonical = new URL(isNew ? '/admin/posts/new' : `/admin/posts/${id}`, env.APP_ORIGIN).toString()
   const success = url.searchParams.get('success')
   const error = url.searchParams.get('error')
   const uploaded = url.searchParams.get('uploaded')
-  const v = row ?? {
+  const shared = row ?? {
     id: '',
     category_id: null,
     post_type: 'guide',
@@ -864,8 +1528,36 @@ export async function adminEditPostPage(env: Bindings, req: Request, id: string 
     status: 'draft',
     publish_at: null
   }
+  const zhPost = siblings.find((item) => item.locale.toLowerCase().startsWith('zh')) ?? (row?.locale.toLowerCase().startsWith('zh') ? row : null) ?? {
+    id: '',
+    category_id: shared.category_id,
+    post_type: shared.post_type,
+    ref_slug: pairKey || null,
+    title: '',
+    slug: '',
+    excerpt: '',
+    content_html: '',
+    cover_image_key: shared.cover_image_key,
+    locale: 'zh',
+    status: shared.status,
+    publish_at: shared.publish_at
+  }
+  const enPost = siblings.find((item) => item.locale.toLowerCase().startsWith('en')) ?? (row?.locale.toLowerCase().startsWith('en') ? row : null) ?? {
+    id: '',
+    category_id: shared.category_id,
+    post_type: shared.post_type,
+    ref_slug: pairKey || null,
+    title: '',
+    slug: '',
+    excerpt: '',
+    content_html: '',
+    cover_image_key: shared.cover_image_key,
+    locale: 'en',
+    status: shared.status,
+    publish_at: shared.publish_at
+  }
   const body = `
-  ${adminNav(env, req, resolveLocale(req))}
+  ${adminNav(env, req, locale)}
   <main>
     <h1>${isNew ? '新增文章' : '编辑文章'}</h1>
     ${success ? `<section class="card notice success"><strong>保存成功</strong><p>${escapeHtml(success === 'saved_with_image' ? '文章信息已保存，封面图已上传并绑定到当前记录。' : '文章信息已保存。')}</p></section>` : ''}
@@ -874,33 +1566,32 @@ export async function adminEditPostPage(env: Bindings, req: Request, id: string 
       <div class="admin-actions">
         <a class="btn" href="/admin/posts">返回文章列表</a>
         <a class="btn" href="/admin/categories">管理文章分类</a>
-        ${!isNew ? `<a class="btn" href="/post/${escapeHtml(v.slug)}" target="_blank" rel="noopener">预览公开页</a>` : ''}
+        ${zhPost.slug ? `<a class="btn" href="/post/${escapeHtml(zhPost.slug)}" target="_blank" rel="noopener">预览中文</a>` : ''}
+        ${enPost.slug ? `<a class="btn" href="/post/${escapeHtml(enPost.slug)}" target="_blank" rel="noopener">Preview EN</a>` : ''}
       </div>
     </section>
     <section class="card">
       <form method="POST" action="${isNew ? '/admin/posts/new' : `/admin/posts/${escapeHtml(String(id))}`}" enctype="multipart/form-data">
+        <input type="hidden" name="pair_ref_slug" value="${escapeHtml(pairKey)}">
         <div class="grid" style="grid-template-columns:1fr 1fr">
-          <label><small>文章标题</small><input class="input" name="title" value="${escapeHtml(v.title)}" required></label>
-          <label><small>Slug</small><input class="input" name="slug" value="${escapeHtml(v.slug)}" required></label>
+          <label><small>文章统一 Slug</small><input class="input" name="slug" value="${escapeHtml(zhPost.slug || enPost.slug || shared.slug)}" required></label>
           <label><small>文章分类</small>
             <select class="input" name="category_id">
               <option value="">(未分类)</option>
-              ${categories.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === v.category_id ? 'selected' : ''}>${escapeHtml(c.name)} (${escapeHtml(c.slug)})</option>`).join('')}
+              ${categories.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === shared.category_id ? 'selected' : ''}>${escapeHtml(c.name)} (${escapeHtml(c.slug)})</option>`).join('')}
             </select>
           </label>
-          <label><small>文章语言</small><select class="input" name="locale">${localeOptions(v.locale)}</select></label>
-          <label><small>关联 Slug（可空）</small><input class="input" name="ref_slug" value="${escapeHtml(v.ref_slug ?? '')}"></label>
-          <label><small>发布状态</small><select class="input" name="status">${statusOptions(v.status)}</select></label>
+          <label><small>发布状态</small><select class="input" name="status">${statusOptions(shared.status)}</select></label>
         </div>
         <div style="height:12px"></div>
-        <label><small>定时发布时间（ISO8601，可空）</small><input class="input" name="publish_at" value="${escapeHtml(v.publish_at ?? '')}"></label>
+        <label><small>定时发布时间（ISO8601，可空）</small><input class="input" name="publish_at" value="${escapeHtml(shared.publish_at ?? '')}"></label>
         <div style="height:12px"></div>
-        <input type="hidden" name="current_cover_image_key" value="${escapeHtml(v.cover_image_key ?? '')}">
+        <input type="hidden" name="current_cover_image_key" value="${escapeHtml(shared.cover_image_key ?? '')}">
         <label><small>封面图上传到 R2</small><input class="input" type="file" name="cover_file" accept="image/png,image/jpeg,image/webp,image/svg+xml"></label>
         ${uploaded === '1' ? `<p><small class="hint-success">本次已上传新的封面图。</small></p>` : ''}
-        ${v.cover_image_key ? `<div style="height:8px"></div><p><small>当前 R2 key：</small> <code>${escapeHtml(v.cover_image_key)}</code></p>` : '<p><small>未上传封面图，保存时如选择图片将自动生成 R2 key。</small></p>'}
+        ${shared.cover_image_key ? `<div style="height:8px"></div><p><small>当前 R2 key：</small> <code>${escapeHtml(shared.cover_image_key)}</code></p>` : '<p><small>未上传封面图，保存时如选择图片将自动生成 R2 key。</small></p>'}
         <div style="height:8px"></div>
-        <img id="post-cover-preview" src="${escapeHtml(v.cover_image_key ? mediaUrl(env.APP_ORIGIN, v.cover_image_key) : '')}" alt="${escapeHtml(v.title || v.slug)}" width="320" height="180" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover;${v.cover_image_key ? '' : 'display:none;'}" />
+        <img id="post-cover-preview" src="${escapeHtml(shared.cover_image_key ? mediaUrl(env.APP_ORIGIN, shared.cover_image_key) : '')}" alt="${escapeHtml(resolveLocaleText(locale, zhPost.title, enPost.title, shared.slug))}" width="320" height="180" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover;${shared.cover_image_key ? '' : 'display:none;'}" />
         <script>
           (() => {
             const input = document.querySelector('input[name="cover_file"]')
@@ -915,9 +1606,24 @@ export async function adminEditPostPage(env: Bindings, req: Request, id: string 
           })()
         </script>
         <div style="height:12px"></div>
-        <label><small>文章摘要（可空）</small><textarea class="input" name="excerpt" rows="3">${escapeHtml(v.excerpt ?? '')}</textarea></label>
-        <div style="height:12px"></div>
-        ${editorBlock('content_html', '正文内容', v.content_html ?? '')}
+        ${twoLocaleFields(
+          '中文文章',
+          `
+            <label><small>文章标题（中文）</small><input class="input" name="title_zh" value="${escapeHtml(zhPost.title)}" required></label>
+            <div style="height:12px"></div>
+            <label><small>文章摘要（中文，可空）</small><textarea class="input" name="excerpt_zh" rows="3">${escapeHtml(zhPost.excerpt ?? '')}</textarea></label>
+            <div style="height:12px"></div>
+            ${editorBlock('content_html_zh', '正文内容（中文）', zhPost.content_html ?? '', { enableImageUpload: true })}
+          `,
+          'English Post',
+          `
+            <label><small>Title (English)</small><input class="input" name="title_en" value="${escapeHtml(enPost.title)}" required></label>
+            <div style="height:12px"></div>
+            <label><small>Excerpt (English, optional)</small><textarea class="input" name="excerpt_en" rows="3">${escapeHtml(enPost.excerpt ?? '')}</textarea></label>
+            <div style="height:12px"></div>
+            ${editorBlock('content_html_en', 'Content (English)', enPost.content_html ?? '', { enableImageUpload: true })}
+          `
+        )}
         <div style="height:12px"></div>
         <button class="btn primary" type="submit">保存</button>
         <a class="btn" href="/admin/posts">返回文章列表</a>
@@ -936,62 +1642,85 @@ export async function adminSavePost(env: Bindings, req: Request, id: string | nu
   if (!user) return unauthorized()
   const form = await req.formData().catch(() => null)
   if (!form) return badRequest('Invalid form')
-  const entityId = id ?? ulid()
   const now = nowIso()
 
-  const title = String(form.get('title') ?? '').trim()
-  const slug = String(form.get('slug') ?? '').trim()
   const categoryId = String(form.get('category_id') ?? '').trim() || null
-  const locale = String(form.get('locale') ?? '').trim() || 'en'
-  const refSlug = String(form.get('ref_slug') ?? '').trim() || null
+  const pairRefSlug = String(form.get('pair_ref_slug') ?? '').trim()
+  const sharedSlug = String(form.get('slug') ?? '').trim()
   const status = String(form.get('status') ?? 'draft').trim()
   const publishAtRaw = String(form.get('publish_at') ?? '').trim() || null
   const currentCover = String(form.get('current_cover_image_key') ?? '').trim() || null
   const coverFile = form.get('cover_file')
-  const excerpt = String(form.get('excerpt') ?? '').trim() || null
-  const contentHtml = sanitizeHtmlBasic(String(form.get('content_html') ?? '').trim())
-  if (!title || !slug || !contentHtml) return redirect(entityEditLocation('posts', id, entityId, 'Missing fields'))
-  if (!isValidSlug(slug)) return redirect(entityEditLocation('posts', id, entityId, 'Invalid slug'))
+  const titleZh = String(form.get('title_zh') ?? '').trim()
+  const excerptZh = String(form.get('excerpt_zh') ?? '').trim() || null
+  const contentZh = sanitizeHtmlBasic(String(form.get('content_html_zh') ?? '').trim())
+  const titleEn = String(form.get('title_en') ?? '').trim()
+  const excerptEn = String(form.get('excerpt_en') ?? '').trim() || null
+  const contentEn = sanitizeHtmlBasic(String(form.get('content_html_en') ?? '').trim())
+  const fallbackEntityId = id ?? ulid()
+  if (!titleZh || !sharedSlug || !contentZh || !titleEn || !contentEn) return redirect(entityEditLocation('posts', id, fallbackEntityId, 'Missing fields'))
+  if (!isValidSlug(sharedSlug)) return redirect(entityEditLocation('posts', id, fallbackEntityId, 'Invalid slug'))
 
-  const existing = await env.DB.prepare(
+  const existing = id ? await env.DB.prepare(
     'SELECT id, category_id, post_type, ref_slug, title, slug, excerpt, content_html, cover_image_key, locale, status, publish_at FROM posts WHERE id=?'
   )
-    .bind(entityId)
-    .first<PostRow>()
-  const postType = existing?.post_type || 'guide'
-  if (existing) await writeRevision(env, user.userId, 'posts', entityId, existing)
+    .bind(id)
+    .first<PostRow>() : null
+  const pairKey = pairRefSlug || existing?.ref_slug || existing?.slug || sharedSlug
+  const groupRows = existing
+    ? await dbAll<PostRow>(
+        env.DB,
+        'SELECT id, category_id, post_type, ref_slug, title, slug, excerpt, content_html, cover_image_key, locale, status, publish_at FROM posts WHERE id=? OR ref_slug=? OR slug=? ORDER BY updated_at DESC LIMIT 4',
+        [existing.id, pairKey, pairKey]
+      )
+    : []
+  const existingZh = groupRows.find((item) => item.locale.toLowerCase().startsWith('zh')) ?? (existing?.locale.toLowerCase().startsWith('zh') ? existing : null)
+  const existingEn = groupRows.find((item) => item.locale.toLowerCase().startsWith('en')) ?? (existing?.locale.toLowerCase().startsWith('en') ? existing : null)
+  const zhId = existingZh?.id ?? (existing?.locale.toLowerCase().startsWith('zh') ? existing.id : ulid())
+  const enId = existingEn?.id ?? (existing?.locale.toLowerCase().startsWith('en') ? existing.id : ulid())
+  const postType = existing?.post_type || existingZh?.post_type || existingEn?.post_type || 'guide'
+  if (existingZh) await writeRevision(env, user.userId, 'posts', existingZh.id, existingZh)
+  if (existingEn && existingEn.id !== existingZh?.id) await writeRevision(env, user.userId, 'posts', existingEn.id, existingEn)
 
-  let cover = currentCover ?? existing?.cover_image_key ?? null
+  let cover = currentCover ?? existing?.cover_image_key ?? existingZh?.cover_image_key ?? existingEn?.cover_image_key ?? null
   let uploadedNewCover = false
   if (coverFile instanceof File && coverFile.size > 0) {
     try {
       cover = await uploadImageToR2(env, coverFile, 'posts/covers', 'Post cover')
       uploadedNewCover = true
     } catch (e) {
-      return redirect(entityEditLocation('posts', id, entityId, (e as Error).message))
+      return redirect(entityEditLocation('posts', id, fallbackEntityId, (e as Error).message))
     }
   }
 
   try {
     const parsedPublishAt = publishAtRaw ? parseIsoOrNull(publishAtRaw) : null
-    if (status === 'scheduled' && !parsedPublishAt) return redirect(entityEditLocation('posts', id, entityId, 'publish_at required for scheduled'))
-    await ensureUniqueSlug(env, 'posts', slug, entityId)
+    if (status === 'scheduled' && !parsedPublishAt) return redirect(entityEditLocation('posts', id, fallbackEntityId, 'publish_at required for scheduled'))
+    await ensureUniquePostSlug(env, sharedSlug, 'zh', zhId)
+    await ensureUniquePostSlug(env, sharedSlug, 'en', enId)
     if (categoryId) await ensureExists(env, 'SELECT id as ok FROM categories WHERE id=? LIMIT 1', [categoryId], 'Invalid category_id')
     if ((status === 'published' || status === 'scheduled') && cover) await ensureR2KeyExists(env, cover)
   } catch (e) {
-    return redirect(entityEditLocation('posts', id, entityId, (e as Error).message))
+    return redirect(entityEditLocation('posts', id, fallbackEntityId, (e as Error).message))
   }
 
   const publishedAt = toPublishedAt(status, now)
-  await env.DB.prepare(
+  const upsertSql =
     'INSERT INTO posts (id, category_id, post_type, ref_slug, title, slug, excerpt, content_html, cover_image_key, locale, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET category_id=excluded.category_id,post_type=excluded.post_type,ref_slug=excluded.ref_slug,title=excluded.title,slug=excluded.slug,excerpt=excluded.excerpt,content_html=excluded.content_html,cover_image_key=excluded.cover_image_key,locale=excluded.locale,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,posts.published_at),updated_at=excluded.updated_at'
-  )
-    .bind(entityId, categoryId, postType, refSlug, title, slug, excerpt, contentHtml, cover, locale, status, publishAtRaw, publishedAt, now, now)
+  await env.DB.prepare(upsertSql)
+    .bind(zhId, categoryId, postType, pairKey, titleZh, sharedSlug, excerptZh, contentZh, cover, 'zh', status, publishAtRaw, publishedAt, now, now)
+    .run()
+  await env.DB.prepare(upsertSql)
+    .bind(enId, categoryId, postType, pairKey, titleEn, sharedSlug, excerptEn, contentEn, cover, 'en', status, publishAtRaw, publishedAt, now, now)
     .run()
 
-  await writeAudit(env, user.userId, id ? 'update' : 'create', 'posts', entityId, { slug, status })
-  if (status === 'published') await writeAudit(env, user.userId, 'publish', 'posts', entityId, { published_at: now })
-  return redirect(`/admin/posts/${entityId}?success=${uploadedNewCover ? 'saved_with_image' : 'saved'}${uploadedNewCover ? '&uploaded=1' : ''}`)
+  await writeAudit(env, user.userId, id ? 'update' : 'create', 'posts', zhId, { slug: sharedSlug, status, locale: 'zh', pair_ref_slug: pairKey })
+  await writeAudit(env, user.userId, id ? 'update' : 'create', 'posts', enId, { slug: sharedSlug, status, locale: 'en', pair_ref_slug: pairKey })
+  if (status === 'published') {
+    await writeAudit(env, user.userId, 'publish', 'posts', zhId, { published_at: now })
+    await writeAudit(env, user.userId, 'publish', 'posts', enId, { published_at: now })
+  }
+  return redirect(`/admin/posts/${zhId}?success=${uploadedNewCover ? 'saved_with_image' : 'saved'}${uploadedNewCover ? '&uploaded=1' : ''}`)
 }
 
 export async function adminMediaPage(env: Bindings, req: Request, uploadedKey?: string): Promise<Response> {
@@ -1059,6 +1788,21 @@ function guessExt(name: string, contentType: string): string {
 
 async function uploadOperatorLogo(env: Bindings, file: File): Promise<string> {
   return uploadImageToR2(env, file, 'operators/logos', 'Logo')
+}
+
+async function uploadSiteIconToR2(env: Bindings, file: File, prefix: string, label: string): Promise<string> {
+  if (file.size <= 0) throw new Error(`Empty ${label.toLowerCase()} file`)
+  if (file.size > 8 * 1024 * 1024) throw new Error(`${label} file too large`)
+  const contentType = file.type || 'application/octet-stream'
+  const lower = file.name.toLowerCase()
+  const isIco = contentType === 'image/x-icon' || contentType === 'image/vnd.microsoft.icon' || lower.endsWith('.ico')
+  if (!isIco && !/^image\/(?:png|jpeg|webp|svg\+xml)$/i.test(contentType)) {
+    throw new Error(`Unsupported ${label.toLowerCase()} image type`)
+  }
+  const ext = isIco ? '.ico' : guessExt(file.name, contentType)
+  const key = `${prefix}/${new Date().toISOString().slice(0, 10)}/${ulid()}${ext}`
+  await putObject(env, key, await file.arrayBuffer(), contentType)
+  return key
 }
 
 function operatorEditLocation(id: string | null, entityId: string, error: string): string {

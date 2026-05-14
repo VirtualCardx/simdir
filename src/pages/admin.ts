@@ -28,6 +28,7 @@ function adminHeader(env: Bindings, req: Request, locale: SiteLocale, actions: s
         <a class="nav-link" href="/admin/operators">${escapeHtml(pick(locale, '供应商', 'Operators'))}</a>
         <a class="nav-link" href="/admin/products">${escapeHtml(pick(locale, '套餐', 'Products'))}</a>
         <a class="nav-link" href="/admin/posts">${escapeHtml(pick(locale, '文章', 'Posts'))}</a>
+        <a class="nav-link" href="/admin/settings">${escapeHtml(pick(locale, '网站设置', 'Settings'))}</a>
         <a class="nav-link" href="/admin/media">${escapeHtml(pick(locale, '媒体', 'Media'))}</a>
         <a class="nav-link" href="/admin/import-export">${escapeHtml(pick(locale, '导入/导出', 'Import / Export'))}</a>
       </div>
@@ -105,13 +106,45 @@ export async function adminHomePage(env: Bindings, req: Request): Promise<Respon
   const user = await requireAdmin(env, req)
   if (!user) return redirect('/admin/login')
   const canonical = new URL('/admin', env.APP_ORIGIN).toString()
-  const [countries, operators, products, posts, categories, postLocales] = await Promise.all([
+  const [countries, operators, products, posts, categories, postLocaleCoverage] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published, SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) as draft, SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) as scheduled, SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) as archived FROM countries").first<CountRow>(),
     env.DB.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published, SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) as draft, SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) as scheduled, SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) as archived FROM operators").first<CountRow>(),
     env.DB.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published, SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) as draft, SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) as scheduled, SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) as archived FROM products").first<CountRow>(),
-    env.DB.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published, SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) as draft, SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) as scheduled, SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) as archived FROM posts").first<CountRow>(),
+    env.DB.prepare(
+      `SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published,
+        SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) as draft,
+        SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) as scheduled,
+        SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) as archived
+      FROM (
+        SELECT
+          COALESCE(NULLIF(ref_slug, ''), slug) as article_key,
+          CASE
+            WHEN SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) > 0 THEN 'published'
+            WHEN SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) > 0 THEN 'scheduled'
+            WHEN SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) > 0 THEN 'draft'
+            ELSE 'archived'
+          END as status
+        FROM posts
+        GROUP BY COALESCE(NULLIF(ref_slug, ''), slug)
+      ) grouped_posts`
+    ).first<CountRow>(),
     env.DB.prepare('SELECT COUNT(*) as total FROM categories').first<{ total: number }>(),
-    env.DB.prepare("SELECT locale, COUNT(*) as total FROM posts GROUP BY locale ORDER BY total DESC").all<{ locale: string; total: number }>()
+    env.DB.prepare(
+      `SELECT
+        SUM(CASE WHEN has_zh=1 AND has_en=1 THEN 1 ELSE 0 END) as bilingual,
+        SUM(CASE WHEN has_zh=1 AND has_en=0 THEN 1 ELSE 0 END) as zh_only,
+        SUM(CASE WHEN has_zh=0 AND has_en=1 THEN 1 ELSE 0 END) as en_only
+      FROM (
+        SELECT
+          COALESCE(NULLIF(ref_slug, ''), slug) as article_key,
+          MAX(CASE WHEN lower(locale) LIKE 'zh%' THEN 1 ELSE 0 END) as has_zh,
+          MAX(CASE WHEN lower(locale) LIKE 'en%' THEN 1 ELSE 0 END) as has_en
+        FROM posts
+        GROUP BY COALESCE(NULLIF(ref_slug, ''), slug)
+      ) locale_groups`
+    ).first<{ bilingual: number; zh_only: number; en_only: number }>()
   ])
   const body = `
   ${adminHeader(env, req, locale, `<form method="POST" action="/api/admin/auth/logout"><button class="btn" type="submit">${escapeHtml(pick(locale, '退出', 'Sign out'))}</button></form>`)}
@@ -120,7 +153,7 @@ export async function adminHomePage(env: Bindings, req: Request): Promise<Respon
       <span class="eyebrow">Dashboard</span>
       <div>
         <h1>${escapeHtml(pick(locale, '站点收录与发布概览', 'Site inventory & publishing overview'))}</h1>
-        <p>${escapeHtml(pick(locale, '已登录：', 'Signed in as:'))}<strong>${escapeHtml(user.userId)}</strong>${escapeHtml(pick(locale, '。这里展示当前网站已收录条目、发布状态与文章语言分布。', '. This dashboard shows indexed items, publishing states, and post language distribution.'))}</p>
+        <p>${escapeHtml(pick(locale, '已登录：', 'Signed in as:'))}<strong>${escapeHtml(user.userId)}</strong>${escapeHtml(pick(locale, '。这里展示当前网站已收录条目、发布状态与文章分组后的语言覆盖情况。', '. This dashboard shows indexed items, publishing states, and grouped post language coverage.'))}</p>
       </div>
     </section>
     <section class="card">
@@ -149,14 +182,14 @@ export async function adminHomePage(env: Bindings, req: Request): Promise<Respon
         </div>
       </section>
       <section class="card">
-        <h2>文章语言分布</h2>
+        <h2>文章语言覆盖</h2>
         <div class="chip-row">
-          ${(postLocales.results ?? [])
-            .map((row) => `<span class="btn">${escapeHtml(localeLabel(row.locale))} ${escapeHtml(String(row.total))}</span>`)
-            .join('') || '<small>暂无文章数据</small>'}
+          <span class="btn">${escapeHtml(pick(locale, '中英双语', 'Bilingual'))} ${escapeHtml(String(postLocaleCoverage?.bilingual ?? 0))}</span>
+          <span class="btn">${escapeHtml(pick(locale, '仅中文', 'Chinese only'))} ${escapeHtml(String(postLocaleCoverage?.zh_only ?? 0))}</span>
+          <span class="btn">${escapeHtml(pick(locale, '仅英文', 'English only'))} ${escapeHtml(String(postLocaleCoverage?.en_only ?? 0))}</span>
         </div>
         <div style="height:12px"></div>
-        <p>${escapeHtml(pick(locale, '建议文章至少覆盖中文与 English 两个版本，并在后台通过语言代码进行筛选和维护。', 'Keep both Chinese and English versions whenever possible, and use language filters in admin to maintain them.'))}</p>
+        <p>${escapeHtml(pick(locale, '文章模块现已按同一篇文章分组统计，中英双语版本会视为同一篇内容。', 'Posts are now grouped as a single article, and bilingual versions count as one piece of content.'))}</p>
       </section>
     </section>
     <section class="card">
@@ -166,6 +199,7 @@ export async function adminHomePage(env: Bindings, req: Request): Promise<Respon
         <a class="btn" href="/admin/operators">管理供应商</a>
         <a class="btn" href="/admin/products">管理套餐</a>
         <a class="btn" href="/admin/posts">管理文章</a>
+        <a class="btn" href="/admin/settings">网站设置</a>
         <a class="btn" href="/admin/categories">管理文章分类</a>
         <a class="btn" href="/admin/import-export">导入/导出</a>
       </div>
@@ -207,7 +241,7 @@ export async function adminListPage(
     posts: '文章'
   }
   const body = `
-  ${adminHeader(env, req, locale, `<a class="btn primary" href="/admin/${entity}/new">${escapeHtml(pick(locale, '新增', 'Create'))}</a>`)}
+  ${adminHeader(env, req, locale, `<form method="POST" action="/api/admin/auth/logout"><button class="btn" type="submit">${escapeHtml(pick(locale, '退出', 'Sign out'))}</button></form>`)}
   <main>
     <section class="page-header">
       <span class="eyebrow">Admin List</span>
@@ -216,11 +250,12 @@ export async function adminListPage(
         <p>${escapeHtml(pick(locale, '集中查看最近更新的内容记录，并进入编辑页继续维护。', 'Review recently updated records and continue editing from here.'))}</p>
       </div>
     </section>
-    ${entity === 'posts' ? `<section class="card muted-panel"><h2>${escapeHtml(pick(locale, '文章模块', 'Post Module'))}</h2><div class="admin-actions"><a class="btn" href="/admin/posts">${escapeHtml(pick(locale, '全部文章', 'All posts'))}</a><a class="btn ${lang === 'zh' || lang === 'zh-cn' ? 'primary' : ''}" href="/admin/posts?lang=zh">${escapeHtml(pick(locale, '中文文章', 'Chinese posts'))}</a><a class="btn ${lang === 'en' ? 'primary' : ''}" href="/admin/posts?lang=en">English Posts</a><a class="btn" href="/admin/categories">${escapeHtml(pick(locale, '管理文章分类', 'Manage categories'))}</a><a class="btn primary" href="/admin/posts/new">${escapeHtml(pick(locale, '新增文章', 'New post'))}</a></div></section>` : ''}
+    ${entity !== 'posts' ? `<section class="card muted-panel"><div class="admin-actions"><a class="btn primary" href="/admin/${entity}/new">${escapeHtml(pick(locale, '新增', 'Create'))} ${escapeHtml(titleMap[entity])}</a></div></section>` : ''}
+    ${entity === 'posts' ? `<section class="card muted-panel"><h2>${escapeHtml(pick(locale, '文章模块', 'Post Module'))}</h2><div class="admin-actions"><a class="btn" href="/admin/posts">${escapeHtml(pick(locale, '全部文章', 'All posts'))}</a><a class="btn ${lang === 'zh' || lang === 'zh-cn' ? 'primary' : ''}" href="/admin/posts?lang=zh">${escapeHtml(pick(locale, '含中文版本', 'Has Chinese'))}</a><a class="btn ${lang === 'en' ? 'primary' : ''}" href="/admin/posts?lang=en">${escapeHtml(pick(locale, '含英文版本', 'Has English'))}</a><a class="btn" href="/admin/categories">${escapeHtml(pick(locale, '管理文章分类', 'Manage categories'))}</a><a class="btn primary" href="/admin/posts/new">${escapeHtml(pick(locale, '新增文章', 'New post'))}</a></div></section>` : ''}
     <section class="card">
       <div class="table-wrap">
       <table>
-        <thead>${entity === 'posts' ? '<tr><th>slug</th><th>标题</th><th>语言</th><th>分类</th><th>状态</th><th>更新时间</th><th></th></tr>' : '<tr><th>slug</th><th>name</th><th>status</th><th>updated</th><th></th></tr>'}</thead>
+        <thead>${entity === 'posts' ? '<tr><th>slug</th><th>中文标题</th><th>英文标题</th><th>语言覆盖</th><th>分类</th><th>状态</th><th>更新时间</th><th></th></tr>' : '<tr><th>slug</th><th>name</th><th>status</th><th>updated</th><th></th></tr>'}</thead>
         <tbody>
           ${rows
             .map((r) => {
@@ -229,9 +264,13 @@ export async function adminListPage(
               const status = String(r.status ?? '')
               const updated = String(r.updated_at ?? '')
               if (entity === 'posts') {
-                const locale = String((r as any).locale ?? '')
+                const zhTitle = String((r as any).zh_title ?? '')
+                const enTitle = String((r as any).en_title ?? '')
+                const hasZh = Number((r as any).has_zh ?? 0) === 1
+                const hasEn = Number((r as any).has_en ?? 0) === 1
                 const category = String((r as any).category_name ?? '')
-                return `<tr><td>${escapeHtml(slug)}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(localeLabel(locale))}</td><td>${escapeHtml(category || '未分类')}</td><td>${escapeHtml(statusLabel(status))}</td><td><small>${escapeHtml(updated)}</small></td><td><a class="btn" href="/admin/${entity}/${escapeHtml(String(r.id))}">编辑</a></td></tr>`
+                const coverage = [hasZh ? '中文' : '', hasEn ? 'English' : ''].filter(Boolean).join(' / ') || '未设置'
+                return `<tr><td>${escapeHtml(slug)}</td><td>${escapeHtml(zhTitle || '—')}</td><td>${escapeHtml(enTitle || '—')}</td><td>${escapeHtml(coverage)}</td><td>${escapeHtml(category || '未分类')}</td><td>${escapeHtml(statusLabel(status))}</td><td><small>${escapeHtml(updated)}</small></td><td><a class="btn" href="/admin/${entity}/${escapeHtml(String(r.id))}">编辑</a></td></tr>`
               }
               return `<tr><td>${escapeHtml(slug)}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(status ? statusLabel(status) : '—')}</td><td><small>${escapeHtml(updated)}</small></td><td><a class="btn" href="/admin/${entity}/${escapeHtml(String(r.id))}">编辑</a></td></tr>`
             })
@@ -261,7 +300,27 @@ export async function adminListPage(
 function listSql(entity: 'categories' | 'countries' | 'operators' | 'products' | 'posts', lang?: string): string {
   if (entity === 'posts') {
     const where = lang ? 'WHERE lower(p.locale)=?' : ''
-    return `SELECT p.id, p.slug, p.title as name, p.locale, p.status, p.updated_at, c.name as category_name FROM posts p LEFT JOIN categories c ON c.id=p.category_id ${where} ORDER BY p.updated_at DESC LIMIT 200`
+    return `SELECT
+      COALESCE(MIN(CASE WHEN lower(p.locale) LIKE 'zh%' THEN p.id END), MIN(CASE WHEN lower(p.locale) LIKE 'en%' THEN p.id END), MIN(p.id)) as id,
+      COALESCE(NULLIF(p.ref_slug, ''), p.slug) as slug,
+      MAX(CASE WHEN lower(p.locale) LIKE 'zh%' THEN p.title END) as zh_title,
+      MAX(CASE WHEN lower(p.locale) LIKE 'en%' THEN p.title END) as en_title,
+      MAX(CASE WHEN lower(p.locale) LIKE 'zh%' THEN 1 ELSE 0 END) as has_zh,
+      MAX(CASE WHEN lower(p.locale) LIKE 'en%' THEN 1 ELSE 0 END) as has_en,
+      COALESCE(MAX(c.name), '') as category_name,
+      CASE
+        WHEN SUM(CASE WHEN p.status='published' THEN 1 ELSE 0 END) > 0 THEN 'published'
+        WHEN SUM(CASE WHEN p.status='scheduled' THEN 1 ELSE 0 END) > 0 THEN 'scheduled'
+        WHEN SUM(CASE WHEN p.status='draft' THEN 1 ELSE 0 END) > 0 THEN 'draft'
+        ELSE 'archived'
+      END as status,
+      MAX(p.updated_at) as updated_at
+    FROM posts p
+    LEFT JOIN categories c ON c.id=p.category_id
+    ${where}
+    GROUP BY COALESCE(NULLIF(p.ref_slug, ''), p.slug)
+    ORDER BY MAX(p.updated_at) DESC
+    LIMIT 200`
   }
   if (entity === 'categories') return `SELECT id, slug, name, '' as status, updated_at FROM categories ORDER BY updated_at DESC LIMIT 500`
   return `SELECT id, slug, name, status, updated_at FROM ${entity} ORDER BY updated_at DESC LIMIT 200`

@@ -5,10 +5,11 @@ import { autoDescription, escapeHtml } from '../lib/seo'
 import { criticalCss, layout } from '../lib/templates'
 import { mediaUrl } from '../lib/media'
 import { languageSwitchHref, localeLabel, normalizeLocale, pick, resolveLocale, type SiteLocale } from '../lib/i18n'
+import { getSiteSettings, resolveSiteFaviconUrl, resolveSiteKeywords, resolveSiteLogoUrl, resolveSiteTagline, resolveSiteTitle, type SiteSettings } from '../lib/site-settings'
 
-type Country = { name: string; slug: string; iso2: string; seo_title: string | null; seo_description: string | null; content_html: string | null; hero_image_key: string | null; faq_json: string | null }
-type Operator = { name: string; slug: string; website_url: string; seo_title: string | null; seo_description: string | null; content_html: string | null; logo_image_key: string | null; faq_json: string | null }
-type Product = { name: string; slug: string; days: number; data_gb: number | null; is_unlimited: number; supports_hotspot: number; network_type: string | null; price_amount: number; price_currency: string; purchase_url: string; operator_name: string; operator_slug: string }
+type Country = { name: string; name_zh: string | null; name_en: string | null; slug: string; iso2: string; seo_title: string | null; seo_title_zh: string | null; seo_title_en: string | null; seo_description: string | null; seo_description_zh: string | null; seo_description_en: string | null; content_html: string | null; content_html_zh: string | null; content_html_en: string | null; hero_image_key: string | null; faq_json: string | null }
+type Operator = { name: string; name_zh: string | null; name_en: string | null; slug: string; website_url: string; seo_title: string | null; seo_title_zh: string | null; seo_title_en: string | null; seo_description: string | null; seo_description_zh: string | null; seo_description_en: string | null; content_html: string | null; content_html_zh: string | null; content_html_en: string | null; logo_image_key: string | null; faq_json: string | null }
+type Product = { name: string; name_zh: string | null; name_en: string | null; slug: string; days: number; data_gb: number | null; is_unlimited: number; supports_hotspot: number; network_type: string | null; price_amount: number; price_currency: string; purchase_url: string; activation_guide_html?: string | null; activation_guide_html_zh?: string | null; activation_guide_html_en?: string | null; operator_name: string; operator_name_zh?: string | null; operator_name_en?: string | null; operator_slug: string }
 type Post = {
   title: string
   slug: string
@@ -22,9 +23,15 @@ type Post = {
   published_at: string | null
   updated_at: string
 }
-type SearchCountry = { name: string; slug: string; iso2: string }
-type SearchOperator = { name: string; slug: string; logo_image_key: string | null }
+type SearchCountry = { name: string; name_zh: string | null; name_en: string | null; slug: string; iso2: string }
+type SearchOperator = { name: string; name_zh: string | null; name_en: string | null; slug: string; logo_image_key: string | null }
 type CategorySummary = { name: string; slug: string; post_count: number }
+
+function localizedText(locale: SiteLocale, zh: string | null | undefined, en: string | null | undefined, fallback: string): string {
+  const primary = locale === 'zh' ? zh : en
+  const secondary = locale === 'zh' ? en : zh
+  return (primary ?? '').trim() || (secondary ?? '').trim() || fallback
+}
 
 function postsUrl(category: string, lang: string): string {
   const qs = new URLSearchParams()
@@ -34,16 +41,19 @@ function postsUrl(category: string, lang: string): string {
   return query ? `/posts?${query}` : '/posts'
 }
 
-function publicHeader(env: Bindings, req: Request, locale: SiteLocale, links: Array<{ href: string; label: string }>): string {
+function publicHeader(env: Bindings, req: Request, locale: SiteLocale, site: SiteSettings, links: Array<{ href: string; label: string }>): string {
   const current = new URL(req.url)
   const currentPath = `${current.pathname}${current.search}`
+  const logoUrl = resolveSiteLogoUrl(env, site)
+  const siteTitle = resolveSiteTitle(env, site, locale)
+  const tagline = resolveSiteTagline(site, locale, pick(locale, '全球旅行上网指南', 'Global travel connectivity guide'))
   return `<header>
     <nav class="nav-shell">
       <a class="nav-brand" href="/" aria-label="Home">
-        <span class="brand-badge">eSIM</span>
+        ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(siteTitle)} logo" width="46" height="46" style="width:46px;height:46px;border-radius:14px;border:1px solid var(--b);object-fit:cover;background:#fff">` : '<span class="brand-badge">eSIM</span>'}
         <span class="brand-copy">
-          <strong>${escapeHtml(env.SITE_NAME)}</strong>
-          <small>${escapeHtml(pick(locale, '全球旅行上网指南', 'Global travel connectivity guide'))}</small>
+          <strong>${escapeHtml(siteTitle)}</strong>
+          <small>${escapeHtml(tagline)}</small>
         </span>
       </a>
       <div class="nav-links">
@@ -60,19 +70,25 @@ function publicHeader(env: Bindings, req: Request, locale: SiteLocale, links: Ar
 
 export async function homePage(env: Bindings, req: Request): Promise<Response> {
   const locale = resolveLocale(req)
+  const site = await getSiteSettings(env)
+  const siteTitle = resolveSiteTitle(env, site, locale)
+  const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
   const [countries, operators, postCategories] = await Promise.all([
-    dbAll<{ name: string; slug: string }>(env.DB, "SELECT name, slug FROM countries WHERE status='published' ORDER BY name ASC LIMIT 60"),
-    dbAll<{ name: string; slug: string; logo_image_key: string | null }>(
+    dbAll<{ name: string; name_zh: string | null; name_en: string | null; slug: string }>(
       env.DB,
-      "SELECT name, slug, logo_image_key FROM operators WHERE status='published' ORDER BY updated_at DESC LIMIT 12"
+      "SELECT name, name_zh, name_en, slug FROM countries WHERE status='published' ORDER BY COALESCE(name_en, name_zh, name) ASC LIMIT 60"
+    ),
+    dbAll<{ name: string; name_zh: string | null; name_en: string | null; slug: string; logo_image_key: string | null }>(
+      env.DB,
+      "SELECT name, name_zh, name_en, slug, logo_image_key FROM operators WHERE status='published' ORDER BY updated_at DESC LIMIT 12"
     ),
     dbAll<CategorySummary>(
       env.DB,
-      "SELECT c.name, c.slug, COUNT(p.id) as post_count FROM categories c LEFT JOIN posts p ON p.category_id=c.id AND p.status='published' GROUP BY c.id, c.name, c.slug ORDER BY post_count DESC, c.sort_order ASC, c.name ASC LIMIT 8"
+      "SELECT c.name, c.slug, COUNT(DISTINCT COALESCE(NULLIF(p.ref_slug, ''), p.slug)) as post_count FROM categories c LEFT JOIN posts p ON p.category_id=c.id AND p.status='published' GROUP BY c.id, c.name, c.slug ORDER BY post_count DESC, c.sort_order ASC, c.name ASC LIMIT 8"
     )
   ])
   const body = `
-  ${publicHeader(env, req, locale, [
+  ${publicHeader(env, req, locale, site, [
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
@@ -108,7 +124,7 @@ export async function homePage(env: Bindings, req: Request): Promise<Response> {
         <p>${escapeHtml(pick(locale, '从国家入口快速进入对应的套餐与运营商列表页。', 'Jump from country hubs to available operators and plans.'))}</p>
         <div class="chip-row">
           ${countries
-            .map((c) => `<a class="btn" href="/country/${escapeHtml(c.slug)}">${escapeHtml(c.name)}</a>`)
+            .map((c) => `<a class="btn" href="/country/${escapeHtml(c.slug)}">${escapeHtml(localizedText(locale, c.name_zh, c.name_en, c.name))}</a>`)
             .join('')}
         </div>
       </div>
@@ -118,11 +134,12 @@ export async function homePage(env: Bindings, req: Request): Promise<Response> {
       <div class="card-grid">
         ${operators
           .map((o) => {
-            const logo = o.logo_image_key ? `<img src="${escapeHtml(mediaUrl(env.APP_ORIGIN, o.logo_image_key))}" alt="${escapeHtml(o.name)} logo" width="48" height="48" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover" />` : ''
+            const operatorName = localizedText(locale, o.name_zh, o.name_en, o.name)
+            const logo = o.logo_image_key ? `<img src="${escapeHtml(mediaUrl(env.APP_ORIGIN, o.logo_image_key))}" alt="${escapeHtml(operatorName)} logo" width="48" height="48" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover" />` : ''
             return `<a class="card card-link" href="/operator/${escapeHtml(o.slug)}">
               ${logo}
               <div>
-                <strong>${escapeHtml(o.name)}</strong>
+                <strong>${escapeHtml(operatorName)}</strong>
                 <div><small>${escapeHtml(pick(locale, '查看供应商详情', 'View operator details'))}</small></div>
               </div>
             </a>`
@@ -147,15 +164,17 @@ export async function homePage(env: Bindings, req: Request): Promise<Response> {
   `
   const canonical = new URL('/', env.APP_ORIGIN).toString()
   const meta = {
-    title: pick(locale, `全球 eSIM 目录：按国家查找与对比 | ${env.SITE_NAME}`, `Global eSIM Directory | ${env.SITE_NAME}`),
+    title: pick(locale, `全球 eSIM 目录：按国家查找与对比 | ${siteTitle}`, `Global eSIM Directory | ${siteTitle}`),
     description: pick(locale, '浏览各国家/地区 eSIM 供应商与套餐，支持筛选与跳转购买。', 'Browse eSIM operators and plans by country with fast filtering and outbound purchase links.'),
     canonical,
+    keywords: resolveSiteKeywords(site, locale) || undefined,
+    faviconHref,
     locale: locale === 'zh' ? 'zh-CN' : 'en',
     jsonLd: [
       {
         '@context': 'https://schema.org',
         '@type': 'WebSite',
-        name: env.SITE_NAME,
+        name: siteTitle,
         url: canonical
       }
     ]
@@ -169,6 +188,9 @@ export async function homePage(env: Bindings, req: Request): Promise<Response> {
 
 export async function postsIndexPage(env: Bindings, req: Request): Promise<Response> {
   const locale = resolveLocale(req)
+  const site = await getSiteSettings(env)
+  const siteTitle = resolveSiteTitle(env, site, locale)
+  const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
   const url = new URL(req.url)
   const category = (url.searchParams.get('category') ?? '').trim()
   const lang = locale
@@ -192,32 +214,32 @@ export async function postsIndexPage(env: Bindings, req: Request): Promise<Respo
   ])
   const canonical = new URL(postsUrl(category, lang), env.APP_ORIGIN).toString()
   const body = `
-  ${publicHeader(env, req, locale, [
+  ${publicHeader(env, req, locale, site, [
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
-  <main>
-    <section class="card muted-panel">
+  <main class="section-gap posts-page">
+    <section class="card muted-panel posts-section">
       <h2>${escapeHtml(pick(locale, '文章类型', 'Article Types'))}</h2>
       <div class="chip-row">
         <a class="btn ${!category ? 'primary' : ''}" href="${postsUrl('', lang)}">${escapeHtml(pick(locale, '全部资讯', 'All Articles'))}</a>
         ${categories.map((c) => `<a class="btn ${category === c.slug ? 'primary' : ''}" href="${postsUrl(c.slug, lang)}">${escapeHtml(c.name)}</a>`).join('')}
       </div>
     </section>
-    <section class="card">
-      <h1>${escapeHtml(pick(locale, '已发布 SIM卡资讯', 'Published SIM Card News'))}</h1>
-      <p>${escapeHtml(pick(locale, '当前列表仅展示系统中已发布的文章，并跟随全站语言显示。', 'This list only shows published articles and follows the current site language.'))}</p>
-      <ul>
+    <section class="card posts-section">
+      <h1 class="posts-heading">${escapeHtml(pick(locale, '已发布 SIM卡资讯', 'Published SIM Card News'))}</h1>
+      <p class="posts-intro">${escapeHtml(pick(locale, '当前列表仅展示系统中已发布的文章，并跟随全站语言显示。', 'This list only shows published articles and follows the current site language.'))}</p>
+      <ul class="posts-list">
         ${posts
           .map((p) => {
             const date = p.published_at ?? p.updated_at
-            return `<li style="margin:10px 0">
+            return `<li class="posts-item">
               <a href="/post/${escapeHtml(p.slug)}"><strong>${escapeHtml(p.title)}</strong></a>
-              <div><small>${escapeHtml(date)}</small></div>
-              <div class="chip-row" style="margin-top:6px">
+              <div class="posts-meta">
+                <small>${escapeHtml(date)}</small>
                 <span class="btn">${escapeHtml(localeLabel(p.locale))}</span>
                 ${p.category_name && p.category_slug ? `<a class="btn" href="${postsUrl(p.category_slug, lang)}">${escapeHtml(p.category_name)}</a>` : ''}
               </div>
-              ${p.excerpt ? `<div><small>${escapeHtml(p.excerpt)}</small></div>` : ''}
+              ${p.excerpt ? `<div class="posts-excerpt"><small>${escapeHtml(p.excerpt)}</small></div>` : ''}
             </li>`
           })
           .join('')}
@@ -228,9 +250,11 @@ export async function postsIndexPage(env: Bindings, req: Request): Promise<Respo
   return html(
     layout(
       {
-        title: pick(locale, `SIM卡资讯 | ${env.SITE_NAME}`, `SIM Card News | ${env.SITE_NAME}`),
+        title: pick(locale, `SIM卡资讯 | ${siteTitle}`, `SIM Card News | ${siteTitle}`),
         description: pick(locale, '浏览系统中已发布的 SIM 卡资讯文章。', 'Browse published SIM card news and guides in the system.'),
         canonical,
+        keywords: resolveSiteKeywords(site, locale) || undefined,
+        faviconHref,
         locale: locale === 'zh' ? 'zh-CN' : 'en',
         jsonLd: [
           {
@@ -250,6 +274,9 @@ export async function postsIndexPage(env: Bindings, req: Request): Promise<Respo
 
 export async function postCategoryPage(env: Bindings, req: Request, slug: string): Promise<Response> {
   const locale = resolveLocale(req)
+  const site = await getSiteSettings(env)
+  const siteTitle = resolveSiteTitle(env, site, locale)
+  const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
   const lang = locale
   const category = await dbGet<{ id: string; name: string; slug: string }>(env.DB, 'SELECT id, name, slug FROM categories WHERE slug=?', [slug])
   if (!category) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'public, max-age=60' } })
@@ -265,7 +292,7 @@ export async function postCategoryPage(env: Bindings, req: Request, slug: string
   const categoryUrl = `/posts/category/${category.slug}`
   const canonical = new URL(categoryUrl, env.APP_ORIGIN).toString()
   const body = `
-  ${publicHeader(env, req, locale, [
+  ${publicHeader(env, req, locale, site, [
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
@@ -301,9 +328,11 @@ export async function postCategoryPage(env: Bindings, req: Request, slug: string
   return html(
     layout(
       {
-        title: `${category.name} | ${env.SITE_NAME}`,
+        title: `${category.name} | ${siteTitle}`,
         description: pick(locale, `${category.name} 分类下的 SIM卡资讯文章。`, `SIM card news articles under ${category.name}.`),
         canonical,
+        keywords: resolveSiteKeywords(site, locale) || undefined,
+        faviconHref,
         locale: locale === 'zh' ? 'zh-CN' : 'en',
         jsonLd: [
           {
@@ -323,10 +352,13 @@ export async function postCategoryPage(env: Bindings, req: Request, slug: string
 
 export async function postPage(env: Bindings, req: Request, slug: string): Promise<Response> {
   const locale = resolveLocale(req)
+  const site = await getSiteSettings(env)
+  const siteTitle = resolveSiteTitle(env, site, locale)
+  const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
   const p = await dbGet<Post>(
     env.DB,
-    "SELECT p.title, p.slug, p.excerpt, p.content_html, p.cover_image_key, p.locale, p.post_type, c.name as category_name, c.slug as category_slug, p.published_at, p.updated_at FROM posts p LEFT JOIN categories c ON c.id=p.category_id WHERE p.slug=? AND p.status='published'",
-    [slug]
+    "SELECT p.title, p.slug, p.excerpt, p.content_html, p.cover_image_key, p.locale, p.post_type, c.name as category_name, c.slug as category_slug, p.published_at, p.updated_at FROM posts p LEFT JOIN categories c ON c.id=p.category_id WHERE p.slug=? AND p.status='published' ORDER BY CASE WHEN lower(p.locale) LIKE ? THEN 0 ELSE 1 END, COALESCE(p.published_at, p.updated_at) DESC LIMIT 1",
+    [slug, `${locale}%`]
   )
   if (!p) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'public, max-age=60' } })
   const canonical = new URL(`/post/${p.slug}`, env.APP_ORIGIN).toString()
@@ -350,7 +382,7 @@ export async function postPage(env: Bindings, req: Request, slug: string): Promi
     image: ogImage ? [ogImage] : undefined
   }
   const body = `
-  ${publicHeader(env, req, locale, [
+  ${publicHeader(env, req, locale, site, [
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
@@ -376,10 +408,12 @@ export async function postPage(env: Bindings, req: Request, slug: string): Promi
   return html(
     layout(
       {
-        title: `${p.title} | ${env.SITE_NAME}`,
+        title: `${p.title} | ${siteTitle}`,
         description: desc,
         canonical,
         ogImage,
+        keywords: resolveSiteKeywords(site, locale) || undefined,
+        faviconHref,
         locale: normalizeLocale(p.locale) === 'zh' ? 'zh-CN' : 'en',
         jsonLd: [jsonLd]
       },
@@ -392,6 +426,9 @@ export async function postPage(env: Bindings, req: Request, slug: string): Promi
 
 export async function searchPage(env: Bindings, req: Request): Promise<Response> {
   const locale = resolveLocale(req)
+  const site = await getSiteSettings(env)
+  const siteTitle = resolveSiteTitle(env, site, locale)
+  const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
   const url = new URL(req.url)
   const q = (url.searchParams.get('q') ?? '').trim()
   const country = (url.searchParams.get('country') ?? '').trim().toLowerCase()
@@ -400,15 +437,15 @@ export async function searchPage(env: Bindings, req: Request): Promise<Response>
     qLike
       ? dbAll<SearchCountry>(
           env.DB,
-          "SELECT name, slug, iso2 FROM countries WHERE status='published' AND (lower(name) LIKE ? OR lower(slug) LIKE ? OR lower(iso2) LIKE ?) ORDER BY name ASC LIMIT 12",
-          [qLike, qLike, qLike]
+          "SELECT name, name_zh, name_en, slug, iso2 FROM countries WHERE status='published' AND (lower(name) LIKE ? OR lower(COALESCE(name_zh, '')) LIKE ? OR lower(COALESCE(name_en, '')) LIKE ? OR lower(slug) LIKE ? OR lower(iso2) LIKE ?) ORDER BY COALESCE(name_en, name_zh, name) ASC LIMIT 12",
+          [qLike, qLike, qLike, qLike, qLike]
         )
       : Promise.resolve([]),
     qLike
       ? dbAll<SearchOperator>(
           env.DB,
-          "SELECT name, slug, logo_image_key FROM operators WHERE status='published' AND (lower(name) LIKE ? OR lower(slug) LIKE ?) ORDER BY updated_at DESC LIMIT 12",
-          [qLike, qLike]
+          "SELECT name, name_zh, name_en, slug, logo_image_key FROM operators WHERE status='published' AND (lower(name) LIKE ? OR lower(COALESCE(name_zh, '')) LIKE ? OR lower(COALESCE(name_en, '')) LIKE ? OR lower(slug) LIKE ?) ORDER BY updated_at DESC LIMIT 12",
+          [qLike, qLike, qLike, qLike]
         )
       : Promise.resolve([]),
     (() => {
@@ -419,19 +456,19 @@ export async function searchPage(env: Bindings, req: Request): Promise<Response>
         params.push(country)
       }
       if (qLike) {
-        where.push('(lower(p.name) LIKE ? OR lower(o.name) LIKE ? OR lower(c.name) LIKE ? OR lower(c.slug) LIKE ? OR lower(c.iso2) LIKE ?)')
-        params.push(qLike, qLike, qLike, qLike, qLike)
+        where.push("(lower(p.name) LIKE ? OR lower(COALESCE(p.name_zh, '')) LIKE ? OR lower(COALESCE(p.name_en, '')) LIKE ? OR lower(o.name) LIKE ? OR lower(COALESCE(o.name_zh, '')) LIKE ? OR lower(COALESCE(o.name_en, '')) LIKE ? OR lower(c.name) LIKE ? OR lower(COALESCE(c.name_zh, '')) LIKE ? OR lower(COALESCE(c.name_en, '')) LIKE ? OR lower(c.slug) LIKE ? OR lower(c.iso2) LIKE ?)")
+        params.push(qLike, qLike, qLike, qLike, qLike, qLike, qLike, qLike, qLike, qLike, qLike)
       }
       return dbAll<Product>(
         env.DB,
-        `SELECT p.name, p.slug, p.days, p.data_gb, p.is_unlimited, p.supports_hotspot, p.network_type, p.price_amount, p.price_currency, p.purchase_url, o.name as operator_name, o.slug as operator_slug FROM products p JOIN operators o ON o.id=p.operator_id JOIN countries c ON c.iso2=p.country_iso2 WHERE ${where.join(' AND ')} ORDER BY p.price_amount ASC LIMIT 100`,
+        `SELECT p.name, p.name_zh, p.name_en, p.slug, p.days, p.data_gb, p.is_unlimited, p.supports_hotspot, p.network_type, p.price_amount, p.price_currency, p.purchase_url, o.name as operator_name, o.name_zh as operator_name_zh, o.name_en as operator_name_en, o.slug as operator_slug FROM products p JOIN operators o ON o.id=p.operator_id JOIN countries c ON c.iso2=p.country_iso2 WHERE ${where.join(' AND ')} ORDER BY p.price_amount ASC LIMIT 100`,
         params
       )
     })()
   ])
   const canonical = new URL(`/search?${url.searchParams.toString()}`, env.APP_ORIGIN).toString()
   const body = `
-  ${publicHeader(env, req, locale, [
+  ${publicHeader(env, req, locale, site, [
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
@@ -444,12 +481,13 @@ export async function searchPage(env: Bindings, req: Request): Promise<Response>
     </section>
     ${!q && !country ? `<section class="card muted-panel"><p>${escapeHtml(pick(locale, '请输入国家、运营商或套餐关键词，例如 ', 'Enter a country, operator, or plan keyword such as '))}<strong>Japan</strong> / <strong>Airalo</strong>.</p></section>` : ''}
     ${countries.length > 0 ? `<section class="card"><h2>${escapeHtml(pick(locale, '国家结果', 'Country results'))}</h2><div class="card-grid">${countries
-      .map((c) => `<a class="card card-link" href="/country/${escapeHtml(c.slug)}"><div><strong>${escapeHtml(c.name)}</strong><div><small>${escapeHtml(c.iso2.toUpperCase())}</small></div></div></a>`)
+      .map((c) => `<a class="card card-link" href="/country/${escapeHtml(c.slug)}"><div><strong>${escapeHtml(localizedText(locale, c.name_zh, c.name_en, c.name))}</strong><div><small>${escapeHtml(c.iso2.toUpperCase())}</small></div></div></a>`)
       .join('')}</div></section>` : ''}
     ${operators.length > 0 ? `<section class="card"><h2>${escapeHtml(pick(locale, '供应商结果', 'Operator results'))}</h2><div class="card-grid">${operators
       .map((o) => {
-        const logo = o.logo_image_key ? `<img src="${escapeHtml(mediaUrl(env.APP_ORIGIN, o.logo_image_key))}" alt="${escapeHtml(o.name)} logo" width="48" height="48" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover" />` : ''
-        return `<a class="card card-link" href="/operator/${escapeHtml(o.slug)}">${logo}<div><strong>${escapeHtml(o.name)}</strong><div><small>${escapeHtml(pick(locale, '查看供应商详情', 'View operator details'))}</small></div></div></a>`
+        const operatorName = localizedText(locale, o.name_zh, o.name_en, o.name)
+        const logo = o.logo_image_key ? `<img src="${escapeHtml(mediaUrl(env.APP_ORIGIN, o.logo_image_key))}" alt="${escapeHtml(operatorName)} logo" width="48" height="48" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover" />` : ''
+        return `<a class="card card-link" href="/operator/${escapeHtml(o.slug)}">${logo}<div><strong>${escapeHtml(operatorName)}</strong><div><small>${escapeHtml(pick(locale, '查看供应商详情', 'View operator details'))}</small></div></div></a>`
       })
       .join('')}</div></section>` : ''}
     <section class="card">
@@ -462,9 +500,11 @@ export async function searchPage(env: Bindings, req: Request): Promise<Response>
             .map((p) => {
               const data = p.is_unlimited ? '无限' : p.data_gb ? `${p.data_gb}GB` : '—'
               const price = `${p.price_currency} ${p.price_amount.toFixed(2)}`
+              const operatorName = localizedText(locale, p.operator_name_zh, p.operator_name_en, p.operator_name)
+              const productName = localizedText(locale, p.name_zh, p.name_en, p.name)
               return `<tr>
-                <td><a href="/operator/${escapeHtml(p.operator_slug)}">${escapeHtml(p.operator_name)}</a></td>
-                <td><a href="/product/${escapeHtml(p.slug)}">${escapeHtml(p.name)}</a></td>
+                <td><a href="/operator/${escapeHtml(p.operator_slug)}">${escapeHtml(operatorName)}</a></td>
+                <td><a href="/product/${escapeHtml(p.slug)}">${escapeHtml(productName)}</a></td>
                 <td>${p.days}</td>
                 <td>${escapeHtml(data)}</td>
                 <td>${escapeHtml(price)}</td>
@@ -481,9 +521,11 @@ export async function searchPage(env: Bindings, req: Request): Promise<Response>
   return html(
     layout(
       {
-        title: `搜索 eSIM 套餐 | ${env.SITE_NAME}`,
+        title: `搜索 eSIM 套餐 | ${siteTitle}`,
         description: q ? `搜索 ${q} 的 eSIM 套餐与供应商。` : '搜索 eSIM 套餐与供应商。',
-        canonical
+        canonical,
+        keywords: resolveSiteKeywords(site, locale) || undefined,
+        faviconHref
       },
       body,
       criticalCss()
@@ -494,16 +536,21 @@ export async function searchPage(env: Bindings, req: Request): Promise<Response>
 
 export async function productPage(env: Bindings, req: Request, slug: string): Promise<Response> {
   const locale = resolveLocale(req)
+  const site = await getSiteSettings(env)
+  const siteTitle = resolveSiteTitle(env, site, locale)
+  const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
   const p = await dbGet<Record<string, unknown>>(
     env.DB,
-    "SELECT p.id, p.name, p.slug, p.days, p.data_gb, p.is_unlimited, p.supports_hotspot, p.network_type, p.price_amount, p.price_currency, p.purchase_url, p.coverage_regions_json, p.activation_guide_html, p.country_iso2, o.name as operator_name, o.slug as operator_slug, o.website_url as operator_website, p.status, p.updated_at FROM products p JOIN operators o ON o.id=p.operator_id WHERE p.slug=? AND p.status='published' AND o.status='published'",
+    "SELECT p.id, p.name, p.name_zh, p.name_en, p.slug, p.days, p.data_gb, p.is_unlimited, p.supports_hotspot, p.network_type, p.price_amount, p.price_currency, p.purchase_url, p.coverage_regions_json, p.activation_guide_html, p.activation_guide_html_zh, p.activation_guide_html_en, p.country_iso2, o.name as operator_name, o.name_zh as operator_name_zh, o.name_en as operator_name_en, o.slug as operator_slug, o.website_url as operator_website, p.status, p.updated_at FROM products p JOIN operators o ON o.id=p.operator_id WHERE p.slug=? AND p.status='published' AND o.status='published'",
     [slug]
   )
   if (!p) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'public, max-age=60' } })
   const canonical = new URL(`/product/${String(p.slug)}`, env.APP_ORIGIN).toString()
-  const title = `${String(p.name)} | ${env.SITE_NAME}`
-  const activation = String(p.activation_guide_html ?? '')
-  const desc = autoDescription(activation || `${String(p.name)} eSIM 套餐，支持跳转购买。`)
+  const productName = localizedText(locale, String(p.name_zh ?? ''), String(p.name_en ?? ''), String(p.name))
+  const operatorName = localizedText(locale, String(p.operator_name_zh ?? ''), String(p.operator_name_en ?? ''), String(p.operator_name))
+  const title = `${productName} | ${siteTitle}`
+  const activation = localizedText(locale, String(p.activation_guide_html_zh ?? ''), String(p.activation_guide_html_en ?? ''), String(p.activation_guide_html ?? ''))
+  const desc = autoDescription(activation || `${productName} eSIM ${pick(locale, '套餐，支持跳转购买。', 'plan with external purchase link.')}`)
   const data = Number(p.is_unlimited) ? pick(locale, '无限', 'Unlimited') : p.data_gb ? `${Number(p.data_gb)}GB` : '—'
   const price = `${String(p.price_currency)} ${Number(p.price_amount).toFixed(2)}`
   const offers = {
@@ -516,17 +563,17 @@ export async function productPage(env: Bindings, req: Request, slug: string): Pr
   const productJsonLd = {
     '@context': 'https://schema.org',
     '@type': 'Product',
-    name: String(p.name),
-    brand: { '@type': 'Brand', name: String(p.operator_name) },
+    name: productName,
+    brand: { '@type': 'Brand', name: operatorName },
     offers
   }
   const body = `
-  ${publicHeader(env, req, locale, [
+  ${publicHeader(env, req, locale, site, [
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
-    <nav aria-label="Breadcrumb"><small><a href="/">${escapeHtml(pick(locale, '首页', 'Home'))}</a> / <a href="/operator/${escapeHtml(String(p.operator_slug))}">${escapeHtml(String(p.operator_name))}</a> / ${escapeHtml(String(p.name))}</small></nav>
-    <h1>${escapeHtml(String(p.name))}</h1>
+    <nav aria-label="Breadcrumb"><small><a href="/">${escapeHtml(pick(locale, '首页', 'Home'))}</a> / <a href="/operator/${escapeHtml(String(p.operator_slug))}">${escapeHtml(operatorName)}</a> / ${escapeHtml(productName)}</small></nav>
+    <h1>${escapeHtml(productName)}</h1>
     <section class="card" aria-label="Specs">
       <div style="display:flex;flex-wrap:wrap;gap:12px">
         <div class="card" style="flex:1;min-width:220px"><small>${escapeHtml(pick(locale, '国家', 'Country'))}</small><div><strong>${escapeHtml(String(p.country_iso2).toUpperCase())}</strong></div></div>
@@ -549,8 +596,10 @@ export async function productPage(env: Bindings, req: Request, slug: string): Pr
     layout(
       {
         title,
-        description: pick(locale, desc, autoDescription(activation || `${String(p.name)} eSIM plan with external purchase link.`)),
+        description: pick(locale, desc, autoDescription(activation || `${productName} eSIM plan with external purchase link.`)),
         canonical,
+        keywords: resolveSiteKeywords(site, locale) || undefined,
+        faviconHref,
         locale: locale === 'zh' ? 'zh-CN' : 'en',
         jsonLd: [productJsonLd]
       },
@@ -563,21 +612,25 @@ export async function productPage(env: Bindings, req: Request, slug: string): Pr
 
 export async function countryPage(env: Bindings, req: Request, slug: string): Promise<Response> {
   const locale = resolveLocale(req)
+  const site = await getSiteSettings(env)
+  const siteTitle = resolveSiteTitle(env, site, locale)
+  const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
   const c = await dbGet<Country>(
     env.DB,
-    "SELECT name, slug, iso2, seo_title, seo_description, content_html, hero_image_key, faq_json FROM countries WHERE slug=? AND status='published'",
+    "SELECT name, name_zh, name_en, slug, iso2, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, hero_image_key, faq_json FROM countries WHERE slug=? AND status='published'",
     [slug]
   )
   if (!c) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'public, max-age=60' } })
   const products = await dbAll<Product>(
     env.DB,
-    "SELECT p.name, p.slug, p.days, p.data_gb, p.is_unlimited, p.supports_hotspot, p.network_type, p.price_amount, p.price_currency, p.purchase_url, o.name as operator_name, o.slug as operator_slug FROM products p JOIN operators o ON o.id=p.operator_id WHERE p.country_iso2=? AND p.status='published' AND o.status='published' ORDER BY p.price_amount ASC LIMIT 100",
+    "SELECT p.name, p.name_zh, p.name_en, p.slug, p.days, p.data_gb, p.is_unlimited, p.supports_hotspot, p.network_type, p.price_amount, p.price_currency, p.purchase_url, o.name as operator_name, o.name_zh as operator_name_zh, o.name_en as operator_name_en, o.slug as operator_slug FROM products p JOIN operators o ON o.id=p.operator_id WHERE p.country_iso2=? AND p.status='published' AND o.status='published' ORDER BY p.price_amount ASC LIMIT 100",
     [c.iso2]
   )
   const ogImage = c.hero_image_key ? mediaUrl(env.APP_ORIGIN, c.hero_image_key) : undefined
   const canonical = new URL(`/country/${c.slug}`, env.APP_ORIGIN).toString()
-  const content = c.content_html ?? `<p>${escapeHtml(pick(locale, `在 ${c.name} 使用 eSIM 上网，支持旅行与商务场景。`, `Use eSIM in ${c.name} for travel and business scenarios.`))}</p>`
-  const desc = c.seo_description ?? autoDescription(content)
+  const countryName = localizedText(locale, c.name_zh, c.name_en, c.name)
+  const content = localizedText(locale, c.content_html_zh, c.content_html_en, c.content_html ?? '') || `<p>${escapeHtml(pick(locale, `在 ${countryName} 使用 eSIM 上网，支持旅行与商务场景。`, `Use eSIM in ${countryName} for travel and business scenarios.`))}</p>`
+  const desc = localizedText(locale, c.seo_description_zh, c.seo_description_en, c.seo_description ?? '') || autoDescription(content)
   const faq = safeJson(c.faq_json)
   const jsonLd: unknown[] = []
   if (Array.isArray(faq) && faq.length > 0) {
@@ -588,13 +641,13 @@ export async function countryPage(env: Bindings, req: Request, slug: string): Pr
     })
   }
   const body = `
-  ${publicHeader(env, req, locale, [
+  ${publicHeader(env, req, locale, site, [
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
-    <nav aria-label="Breadcrumb"><small><a href="/">${escapeHtml(pick(locale, '首页', 'Home'))}</a> / ${escapeHtml(c.name)}</small></nav>
-    <h1>${escapeHtml(c.name)} eSIM</h1>
-    ${c.hero_image_key ? `<img src="${escapeHtml(ogImage ?? '')}" alt="${escapeHtml(c.name)} eSIM" loading="lazy" style="width:100%;max-height:320px;object-fit:cover;border-radius:12px;border:1px solid var(--b)" />` : ''}
+    <nav aria-label="Breadcrumb"><small><a href="/">${escapeHtml(pick(locale, '首页', 'Home'))}</a> / ${escapeHtml(countryName)}</small></nav>
+    <h1>${escapeHtml(countryName)} eSIM</h1>
+    ${c.hero_image_key ? `<img src="${escapeHtml(ogImage ?? '')}" alt="${escapeHtml(countryName)} eSIM" loading="lazy" style="width:100%;max-height:320px;object-fit:cover;border-radius:12px;border:1px solid var(--b)" />` : ''}
     <section class="card" aria-label="Guide">${content}</section>
     <h2>${escapeHtml(pick(locale, '推荐套餐', 'Recommended Plans'))}</h2>
     <div class="card" aria-label="Products">
@@ -606,9 +659,11 @@ export async function countryPage(env: Bindings, req: Request, slug: string): Pr
               const data = p.is_unlimited ? pick(locale, '无限', 'Unlimited') : p.data_gb ? `${p.data_gb}GB` : '—'
               const hotspot = p.supports_hotspot ? pick(locale, '支持', 'Supported') : pick(locale, '不支持', 'Not supported')
               const price = `${p.price_currency} ${p.price_amount.toFixed(2)}`
+              const operatorName = localizedText(locale, p.operator_name_zh, p.operator_name_en, p.operator_name)
+              const productName = localizedText(locale, p.name_zh, p.name_en, p.name)
               return `<tr>
-                <td><a href="/operator/${escapeHtml(p.operator_slug)}">${escapeHtml(p.operator_name)}</a></td>
-                <td>${escapeHtml(p.name)}</td>
+                <td><a href="/operator/${escapeHtml(p.operator_slug)}">${escapeHtml(operatorName)}</a></td>
+                <td>${escapeHtml(productName)}</td>
                 <td>${p.days}</td>
                 <td>${escapeHtml(data)}</td>
                 <td>${escapeHtml(hotspot)}</td>
@@ -626,10 +681,12 @@ export async function countryPage(env: Bindings, req: Request, slug: string): Pr
   return html(
     layout(
       {
-        title: c.seo_title ?? `${c.name} eSIM 套餐与供应商对比 | ${env.SITE_NAME}`,
+        title: localizedText(locale, c.seo_title_zh, c.seo_title_en, c.seo_title ?? '') || `${countryName} eSIM 套餐与供应商对比 | ${siteTitle}`,
         description: pick(locale, desc, autoDescription(content)),
         canonical,
         ogImage,
+        keywords: resolveSiteKeywords(site, locale) || undefined,
+        faviconHref,
         locale: locale === 'zh' ? 'zh-CN' : 'en',
         jsonLd
       },
@@ -646,21 +703,25 @@ export async function countryPage(env: Bindings, req: Request, slug: string): Pr
 
 export async function operatorPage(env: Bindings, req: Request, slug: string): Promise<Response> {
   const locale = resolveLocale(req)
+  const site = await getSiteSettings(env)
+  const siteTitle = resolveSiteTitle(env, site, locale)
+  const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
   const o = await dbGet<Operator>(
     env.DB,
-    "SELECT name, slug, website_url, seo_title, seo_description, content_html, logo_image_key, faq_json FROM operators WHERE slug=? AND status='published'",
+    "SELECT name, name_zh, name_en, slug, website_url, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, logo_image_key, faq_json FROM operators WHERE slug=? AND status='published'",
     [slug]
   )
   if (!o) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'public, max-age=60' } })
-  const products = await dbAll<{ slug: string; name: string; days: number; data_gb: number | null; is_unlimited: number; supports_hotspot: number; network_type: string | null; price_amount: number; price_currency: string; purchase_url: string; country_iso2: string }>(
+  const products = await dbAll<{ slug: string; name: string; name_zh: string | null; name_en: string | null; days: number; data_gb: number | null; is_unlimited: number; supports_hotspot: number; network_type: string | null; price_amount: number; price_currency: string; purchase_url: string; country_iso2: string }>(
     env.DB,
-    "SELECT slug, name, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, country_iso2 FROM products WHERE operator_id=(SELECT id FROM operators WHERE slug=?) AND status='published' ORDER BY price_amount ASC LIMIT 200",
+    "SELECT slug, name, name_zh, name_en, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, country_iso2 FROM products WHERE operator_id=(SELECT id FROM operators WHERE slug=?) AND status='published' ORDER BY price_amount ASC LIMIT 200",
     [slug]
   )
   const ogImage = o.logo_image_key ? mediaUrl(env.APP_ORIGIN, o.logo_image_key) : undefined
   const canonical = new URL(`/operator/${o.slug}`, env.APP_ORIGIN).toString()
-  const content = o.content_html ?? `<p>${escapeHtml(pick(locale, `${o.name} 提供覆盖多个国家/地区的 eSIM 套餐。`, `${o.name} offers eSIM plans covering multiple countries and regions.`))}</p>`
-  const desc = o.seo_description ?? autoDescription(content)
+  const operatorName = localizedText(locale, o.name_zh, o.name_en, o.name)
+  const content = localizedText(locale, o.content_html_zh, o.content_html_en, o.content_html ?? '') || `<p>${escapeHtml(pick(locale, `${operatorName} 提供覆盖多个国家/地区的 eSIM 套餐。`, `${operatorName} offers eSIM plans covering multiple countries and regions.`))}</p>`
+  const desc = localizedText(locale, o.seo_description_zh, o.seo_description_en, o.seo_description ?? '') || autoDescription(content)
   const faq = safeJson(o.faq_json)
   const uniqueCountries = new Set(products.map((p) => p.country_iso2.toUpperCase()))
   const minPrice = products.length > 0 ? `${products[0].price_currency} ${products[0].price_amount.toFixed(2)}` : pick(locale, '暂无套餐', 'No plans yet')
@@ -669,26 +730,26 @@ export async function operatorPage(env: Bindings, req: Request, slug: string): P
   jsonLd.push({
     '@context': 'https://schema.org',
     '@type': 'Organization',
-    name: o.name,
+    name: operatorName,
     url: o.website_url
   })
   if (Array.isArray(faq) && faq.length > 0) {
     jsonLd.push({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq })
   }
   const body = `
-  ${publicHeader(env, req, locale, [
+  ${publicHeader(env, req, locale, site, [
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
     <section class="hero" aria-label="Provider Hero">
       <div class="card">
-        <nav aria-label="Breadcrumb"><small><a href="/">${escapeHtml(pick(locale, '首页', 'Home'))}</a> / ${escapeHtml(pick(locale, '供应商', 'Operator'))} / ${escapeHtml(o.name)}</small></nav>
+        <nav aria-label="Breadcrumb"><small><a href="/">${escapeHtml(pick(locale, '首页', 'Home'))}</a> / ${escapeHtml(pick(locale, '供应商', 'Operator'))} / ${escapeHtml(operatorName)}</small></nav>
         <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:8px 0 14px">
-          ${ogImage ? `<img src="${escapeHtml(ogImage)}" alt="${escapeHtml(o.name)} logo" width="72" height="72" loading="lazy" class="inline-media" />` : ''}
+          ${ogImage ? `<img src="${escapeHtml(ogImage)}" alt="${escapeHtml(operatorName)} logo" width="72" height="72" loading="lazy" class="inline-media" />` : ''}
           <div>
             <span class="eyebrow">${escapeHtml(pick(locale, '供应商目录', 'Operator Directory'))}</span>
-            <h1>${escapeHtml(o.name)} eSIM ${escapeHtml(pick(locale, '套餐', 'Plans'))}</h1>
-            <p>${escapeHtml(pick(locale, `查看 ${o.name} 的套餐价格、覆盖国家、网络类型与购买入口，风格与首页保持一致的卡片式目录体验。`, `Review ${o.name} plan pricing, coverage, network type, and purchase links in a layout aligned with the homepage.`))}</p>
+            <h1>${escapeHtml(operatorName)} eSIM ${escapeHtml(pick(locale, '套餐', 'Plans'))}</h1>
+            <p>${escapeHtml(pick(locale, `查看 ${operatorName} 的套餐价格、覆盖国家、网络类型与购买入口，风格与首页保持一致的卡片式目录体验。`, `Review ${operatorName} plan pricing, coverage, network type, and purchase links in a layout aligned with the homepage.`))}</p>
           </div>
         </div>
         <div class="hero-stats">
@@ -734,8 +795,9 @@ export async function operatorPage(env: Bindings, req: Request, slug: string): P
               const data = p.is_unlimited ? pick(locale, '无限', 'Unlimited') : p.data_gb ? `${p.data_gb}GB` : '—'
               const net = p.network_type ?? '—'
               const price = `${p.price_currency} ${p.price_amount.toFixed(2)}`
+              const productName = localizedText(locale, p.name_zh, p.name_en, p.name)
               return `<tr>
-                <td><a href="/product/${escapeHtml(p.slug)}">${escapeHtml(p.name)}</a></td>
+                <td><a href="/product/${escapeHtml(p.slug)}">${escapeHtml(productName)}</a></td>
                 <td>${escapeHtml(p.country_iso2.toUpperCase())}</td>
                 <td>${p.days}</td>
                 <td>${escapeHtml(data)}</td>
@@ -762,7 +824,7 @@ export async function operatorPage(env: Bindings, req: Request, slug: string): P
         <section class="soft-card">
           <h3>${escapeHtml(pick(locale, '目录摘要', 'Directory Summary'))}</h3>
           <div class="meta-list">
-            <div class="meta-item"><small>${escapeHtml(pick(locale, '供应商名称', 'Operator'))}</small><strong>${escapeHtml(o.name)}</strong></div>
+            <div class="meta-item"><small>${escapeHtml(pick(locale, '供应商名称', 'Operator'))}</small><strong>${escapeHtml(operatorName)}</strong></div>
             <div class="meta-item"><small>${escapeHtml(pick(locale, '覆盖国家', 'Countries covered'))}</small><strong>${uniqueCountries.size} ${escapeHtml(pick(locale, '个', 'countries'))}</strong></div>
             <div class="meta-item"><small>${escapeHtml(pick(locale, '套餐更新', 'Sort order'))}</small><strong>${escapeHtml(pick(locale, '按价格升序展示', 'Ordered by ascending price'))}</strong></div>
           </div>
@@ -770,7 +832,7 @@ export async function operatorPage(env: Bindings, req: Request, slug: string): P
         <section class="soft-card">
           <h3>${escapeHtml(pick(locale, '推荐浏览', 'Recommended next steps'))}</h3>
           <div class="meta-list">
-            <a class="btn" href="/search?q=${encodeURIComponent(o.name)}">${escapeHtml(pick(locale, '搜索同名套餐', 'Search matching plans'))}</a>
+            <a class="btn" href="/search?q=${encodeURIComponent(operatorName)}">${escapeHtml(pick(locale, '搜索同名套餐', 'Search matching plans'))}</a>
             <a class="btn" href="/posts">${escapeHtml(pick(locale, '查看 SIM卡资讯', 'Read SIM card news'))}</a>
           </div>
         </section>
@@ -782,10 +844,12 @@ export async function operatorPage(env: Bindings, req: Request, slug: string): P
   return html(
     layout(
       {
-        title: o.seo_title ?? `${o.name} eSIM 套餐与覆盖国家 | ${env.SITE_NAME}`,
+        title: localizedText(locale, o.seo_title_zh, o.seo_title_en, o.seo_title ?? '') || `${operatorName} eSIM 套餐与覆盖国家 | ${siteTitle}`,
         description: pick(locale, desc, autoDescription(content)),
         canonical,
         ogImage,
+        keywords: resolveSiteKeywords(site, locale) || undefined,
+        faviconHref,
         locale: locale === 'zh' ? 'zh-CN' : 'en',
         jsonLd
       },

@@ -21,6 +21,8 @@ import {
   adminSaveProduct,
   adminEditPostPage,
   adminSavePost,
+  adminSiteSettingsPage,
+  adminSaveSiteSettings,
   adminMediaPage,
   adminMediaUpload
 } from './pages/admin-edit'
@@ -73,6 +75,8 @@ router.on('GET', '/admin/posts/new', async ({ req }) => adminEditPostPage((req a
 router.on('POST', '/admin/posts/new', async ({ req }) => adminSavePost((req as any).env, req, null))
 router.on('GET', '/admin/posts/:id', async ({ req, params }) => adminEditPostPage((req as any).env, req, params.id))
 router.on('POST', '/admin/posts/:id', async ({ req, params }) => adminSavePost((req as any).env, req, params.id))
+router.on('GET', '/admin/settings', async ({ req }) => adminSiteSettingsPage((req as any).env, req))
+router.on('POST', '/admin/settings', async ({ req }) => adminSaveSiteSettings((req as any).env, req))
 
 router.on('GET', '/admin/import-export', async ({ req }) => adminImportExportPage((req as any).env, req))
 

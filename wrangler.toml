@@ -1,0 +1,31 @@
+name = "esim-directory"
+main = "src/index.ts"
+compatibility_date = "2026-05-12"
+
+[vars]
+APP_ORIGIN = "http://localhost:8787"
+SITE_NAME = "Global eSIM Directory"
+JWT_ISSUER = "esim-directory"
+BOOTSTRAP_ADMIN = "true"
+BOOTSTRAP_ADMIN_EMAIL = "admin@example.com"
+BOOTSTRAP_ADMIN_PASSWORD = "ChangeMe-Now!"
+ACCESS_TOKEN_TTL_SECONDS = "900"
+REFRESH_TOKEN_TTL_SECONDS = "2592000"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "esim_directory"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "00000000000000000000000000000000"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "esim-directory-media"
+
+[triggers]
+crons = ["*/5 * * * *"]
+

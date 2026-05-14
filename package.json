@@ -1,0 +1,32 @@
+{
+  "name": "esim-directory-workers",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --persist-to .wrangler/state",
+    "dev:remote": "wrangler dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "deploy": "wrangler deploy",
+    "d1:migrate:local": "wrangler d1 migrations apply esim_directory --local",
+    "d1:migrate:remote": "wrangler d1 migrations apply esim_directory"
+  },
+  "dependencies": {
+    "@cloudflare/workers-types": "^4.20260508.0",
+    "cookie": "^0.6.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0",
+    "@types/cookie": "^0.6.0",
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.25.4",
+    "miniflare": "^4.20260508.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8",
+    "wrangler": "^3.106.0"
+  }
+}
+

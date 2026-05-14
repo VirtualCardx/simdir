@@ -1,4 +1,7 @@
 import type { Bindings } from '../env'
+import { desc, eq, max, sql } from 'drizzle-orm'
+import * as schema from '../db/schema'
+import { getDb } from '../lib/db'
 
 export async function robotsTxt(env: Bindings): Promise<Response> {
   const body = `User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/admin\nSitemap: ${new URL('/sitemap.xml', env.APP_ORIGIN).toString()}\n`
@@ -11,22 +14,48 @@ export async function robotsTxt(env: Bindings): Promise<Response> {
 }
 
 export async function sitemapXml(env: Bindings): Promise<Response> {
+  const db = getDb(env.DB)
   const [countries, operators, products, posts, categories] = await Promise.all([
-    env.DB.prepare("SELECT slug, updated_at FROM countries WHERE status='published' ORDER BY updated_at DESC").all<{ slug: string; updated_at: string }>(),
-    env.DB.prepare("SELECT slug, updated_at FROM operators WHERE status='published' ORDER BY updated_at DESC").all<{ slug: string; updated_at: string }>(),
-    env.DB.prepare("SELECT slug, updated_at FROM products WHERE status='published' ORDER BY updated_at DESC").all<{ slug: string; updated_at: string }>(),
-    env.DB.prepare("SELECT slug, MAX(updated_at) as updated_at FROM posts WHERE status='published' GROUP BY slug ORDER BY MAX(updated_at) DESC").all<{ slug: string; updated_at: string }>(),
-    env.DB.prepare("SELECT DISTINCT c.slug as slug, MAX(p.updated_at) as updated_at FROM categories c JOIN posts p ON p.category_id=c.id AND p.status='published' GROUP BY c.id, c.slug ORDER BY MAX(p.updated_at) DESC").all<{ slug: string; updated_at: string }>()
+    db
+      .select({ slug: schema.countries.slug, updated_at: schema.countries.updatedAt })
+      .from(schema.countries)
+      .where(eq(schema.countries.status, 'published'))
+      .orderBy(desc(schema.countries.updatedAt)),
+    db
+      .select({ slug: schema.operators.slug, updated_at: schema.operators.updatedAt })
+      .from(schema.operators)
+      .where(eq(schema.operators.status, 'published'))
+      .orderBy(desc(schema.operators.updatedAt)),
+    db
+      .select({ slug: schema.products.slug, updated_at: schema.products.updatedAt })
+      .from(schema.products)
+      .where(eq(schema.products.status, 'published'))
+      .orderBy(desc(schema.products.updatedAt)),
+    db
+      .select({ slug: schema.posts.slug, updated_at: max(schema.posts.updatedAt).as('updated_at') })
+      .from(schema.posts)
+      .where(eq(schema.posts.status, 'published'))
+      .groupBy(schema.posts.slug)
+      .orderBy(desc(max(schema.posts.updatedAt))),
+    db
+      .select({
+        slug: schema.categories.slug,
+        updated_at: max(schema.posts.updatedAt).as('updated_at')
+      })
+      .from(schema.categories)
+      .innerJoin(schema.posts, sql`${schema.posts.categoryId} = ${schema.categories.id} and ${schema.posts.status} = 'published'`)
+      .groupBy(schema.categories.id, schema.categories.slug)
+      .orderBy(desc(max(schema.posts.updatedAt)))
   ])
   const origin = env.APP_ORIGIN
   const urls: { loc: string; lastmod?: string }[] = []
   urls.push({ loc: new URL('/', origin).toString() })
   urls.push({ loc: new URL('/posts', origin).toString() })
-  for (const c of categories.results ?? []) urls.push({ loc: new URL(`/posts/category/${c.slug}`, origin).toString(), lastmod: c.updated_at })
-  for (const c of countries.results ?? []) urls.push({ loc: new URL(`/country/${c.slug}`, origin).toString(), lastmod: c.updated_at })
-  for (const o of operators.results ?? []) urls.push({ loc: new URL(`/operator/${o.slug}`, origin).toString(), lastmod: o.updated_at })
-  for (const p of products.results ?? []) urls.push({ loc: new URL(`/product/${p.slug}`, origin).toString(), lastmod: p.updated_at })
-  for (const p of posts.results ?? []) urls.push({ loc: new URL(`/post/${p.slug}`, origin).toString(), lastmod: p.updated_at })
+  for (const c of categories) urls.push({ loc: new URL(`/posts/category/${c.slug}`, origin).toString(), lastmod: c.updated_at ?? undefined })
+  for (const c of countries) urls.push({ loc: new URL(`/country/${c.slug}`, origin).toString(), lastmod: c.updated_at })
+  for (const o of operators) urls.push({ loc: new URL(`/operator/${o.slug}`, origin).toString(), lastmod: o.updated_at })
+  for (const p of products) urls.push({ loc: new URL(`/product/${p.slug}`, origin).toString(), lastmod: p.updated_at })
+  for (const p of posts) urls.push({ loc: new URL(`/post/${p.slug}`, origin).toString(), lastmod: p.updated_at ?? undefined })
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls

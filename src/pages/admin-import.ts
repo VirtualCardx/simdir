@@ -1,6 +1,8 @@
 import type { Bindings } from '../env'
+import { desc, sql } from 'drizzle-orm'
+import * as schema from '../db/schema'
 import { requireAdmin } from '../lib/auth'
-import { dbAll } from '../lib/db'
+import { getDb } from '../lib/db'
 import { html, redirect, unauthorized, badRequest } from '../lib/http'
 import { criticalCss, layout } from '../lib/templates'
 import { escapeHtml } from '../lib/seo'
@@ -113,7 +115,7 @@ export async function apiAdminExport(env: Bindings, req: Request): Promise<Respo
   if (!isEntity(entity)) return badRequest('Invalid entity')
   if (format !== 'json' && format !== 'csv') return badRequest('Invalid format')
 
-  const rows = await dbAll<Record<string, unknown>>(env.DB, `SELECT * FROM ${entity} ORDER BY updated_at DESC LIMIT 20000`)
+  const rows = await exportRows(env, entity)
   if (format === 'json') {
     const body = JSON.stringify(rows, null, 2)
     return new Response(body, {
@@ -140,6 +142,7 @@ export async function apiAdminImport(env: Bindings, req: Request): Promise<Respo
   const user = await requireAdmin(env, req)
   if (!user) return unauthorized()
   const now = nowIso()
+  const db = getDb(env.DB)
   const ct = req.headers.get('content-type') ?? ''
   let entity: Entity
   let format: Format
@@ -180,17 +183,22 @@ export async function apiAdminImport(env: Bindings, req: Request): Promise<Respo
 
   if (items.length === 0) return badRequest('No rows')
 
-  const stmt = upsertStmt(entity)
   let ok = 0
   for (const item of items) {
     const v = normalize(entity, item, now)
     if (!v) continue
-    await env.DB.prepare(stmt.sql).bind(...stmt.bind(v)).run()
+    await upsertEntityRow(db, entity, v)
     ok += 1
   }
-  await env.DB.prepare('INSERT INTO audit_logs (id, actor_user_id, action, entity_type, entity_id, detail_json, created_at) VALUES (?,?,?,?,?,?,?)')
-    .bind(ulid(), user.userId, 'import', entity, null, JSON.stringify({ ok, total: items.length, format }), now)
-    .run()
+  await db.insert(schema.auditLogs).values({
+    id: ulid(),
+    actorUserId: user.userId,
+    action: 'import',
+    entityType: entity,
+    entityId: null,
+    detailJson: JSON.stringify({ ok, total: items.length, format }),
+    createdAt: now
+  })
   return redirect('/admin/import-export')
 }
 
@@ -375,109 +383,301 @@ function csvParse(text: string): string[][] {
   return rows
 }
 
-type Upsert = {
-  sql: string
-  bind: (row: Record<string, unknown>) => unknown[]
-}
-
-function upsertStmt(entity: Entity): Upsert {
+async function exportRows(env: Bindings, entity: Entity): Promise<Record<string, unknown>[]> {
+  const db = getDb(env.DB)
   if (entity === 'categories') {
-    return {
-      sql: 'INSERT INTO categories (id, parent_id, name, slug, sort_order, created_at, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id,name=excluded.name,slug=excluded.slug,sort_order=excluded.sort_order,updated_at=excluded.updated_at',
-      bind: (r) => [r.id, r.parent_id, r.name, r.slug, r.sort_order, r.created_at, r.updated_at]
-    }
+    return db
+      .select({
+        id: schema.categories.id,
+        parent_id: schema.categories.parentId,
+        name: schema.categories.name,
+        slug: schema.categories.slug,
+        sort_order: schema.categories.sortOrder,
+        created_at: schema.categories.createdAt,
+        updated_at: schema.categories.updatedAt
+      })
+      .from(schema.categories)
+      .orderBy(desc(schema.categories.updatedAt))
+      .limit(20000)
   }
   if (entity === 'countries') {
-    return {
-      sql: 'INSERT INTO countries (id, iso2, name, slug, hero_image_key, seo_title, seo_description, content_html, faq_json, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET iso2=excluded.iso2,name=excluded.name,slug=excluded.slug,hero_image_key=excluded.hero_image_key,seo_title=excluded.seo_title,seo_description=excluded.seo_description,content_html=excluded.content_html,faq_json=excluded.faq_json,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,countries.published_at),updated_at=excluded.updated_at',
-      bind: (r) => [
-        r.id,
-        r.iso2,
-        r.name,
-        r.slug,
-        r.hero_image_key,
-        r.seo_title,
-        r.seo_description,
-        r.content_html,
-        r.faq_json,
-        r.status,
-        r.publish_at,
-        r.published_at,
-        r.created_at,
-        r.updated_at
-      ]
-    }
+    return db
+      .select({
+        id: schema.countries.id,
+        iso2: schema.countries.iso2,
+        name: schema.countries.name,
+        slug: schema.countries.slug,
+        hero_image_key: schema.countries.heroImageKey,
+        seo_title: schema.countries.seoTitle,
+        seo_description: schema.countries.seoDescription,
+        content_html: schema.countries.contentHtml,
+        faq_json: schema.countries.faqJson,
+        status: schema.countries.status,
+        publish_at: schema.countries.publishAt,
+        published_at: schema.countries.publishedAt,
+        created_at: schema.countries.createdAt,
+        updated_at: schema.countries.updatedAt
+      })
+      .from(schema.countries)
+      .orderBy(desc(schema.countries.updatedAt))
+      .limit(20000)
   }
   if (entity === 'operators') {
-    return {
-      sql: 'INSERT INTO operators (id, name, slug, website_url, logo_image_key, support_channels_json, seo_title, seo_description, content_html, faq_json, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,slug=excluded.slug,website_url=excluded.website_url,logo_image_key=excluded.logo_image_key,support_channels_json=excluded.support_channels_json,seo_title=excluded.seo_title,seo_description=excluded.seo_description,content_html=excluded.content_html,faq_json=excluded.faq_json,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,operators.published_at),updated_at=excluded.updated_at',
-      bind: (r) => [
-        r.id,
-        r.name,
-        r.slug,
-        r.website_url,
-        r.logo_image_key,
-        r.support_channels_json,
-        r.seo_title,
-        r.seo_description,
-        r.content_html,
-        r.faq_json,
-        r.status,
-        r.publish_at,
-        r.published_at,
-        r.created_at,
-        r.updated_at
-      ]
-    }
+    return db
+      .select({
+        id: schema.operators.id,
+        name: schema.operators.name,
+        slug: schema.operators.slug,
+        website_url: schema.operators.websiteUrl,
+        logo_image_key: schema.operators.logoImageKey,
+        support_channels_json: schema.operators.supportChannelsJson,
+        seo_title: schema.operators.seoTitle,
+        seo_description: schema.operators.seoDescription,
+        content_html: schema.operators.contentHtml,
+        faq_json: schema.operators.faqJson,
+        status: schema.operators.status,
+        publish_at: schema.operators.publishAt,
+        published_at: schema.operators.publishedAt,
+        created_at: schema.operators.createdAt,
+        updated_at: schema.operators.updatedAt
+      })
+      .from(schema.operators)
+      .orderBy(desc(schema.operators.updatedAt))
+      .limit(20000)
   }
   if (entity === 'products') {
-    return {
-      sql: 'INSERT INTO products (id, operator_id, category_id, country_iso2, name, slug, data_gb, days, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, coverage_regions_json, activation_guide_html, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET operator_id=excluded.operator_id,category_id=excluded.category_id,country_iso2=excluded.country_iso2,name=excluded.name,slug=excluded.slug,data_gb=excluded.data_gb,days=excluded.days,is_unlimited=excluded.is_unlimited,supports_hotspot=excluded.supports_hotspot,network_type=excluded.network_type,price_amount=excluded.price_amount,price_currency=excluded.price_currency,purchase_url=excluded.purchase_url,coverage_regions_json=excluded.coverage_regions_json,activation_guide_html=excluded.activation_guide_html,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,products.published_at),updated_at=excluded.updated_at',
-      bind: (r) => [
-        r.id,
-        r.operator_id,
-        r.category_id,
-        r.country_iso2,
-        r.name,
-        r.slug,
-        r.data_gb,
-        r.days,
-        r.is_unlimited,
-        r.supports_hotspot,
-        r.network_type,
-        r.price_amount,
-        r.price_currency,
-        r.purchase_url,
-        r.coverage_regions_json,
-        r.activation_guide_html,
-        r.status,
-        r.publish_at,
-        r.published_at,
-        r.created_at,
-        r.updated_at
-      ]
+    return db
+      .select({
+        id: schema.products.id,
+        operator_id: schema.products.operatorId,
+        category_id: schema.products.categoryId,
+        country_iso2: schema.products.countryIso2,
+        name: schema.products.name,
+        slug: schema.products.slug,
+        data_gb: schema.products.dataGb,
+        days: schema.products.days,
+        is_unlimited: schema.products.isUnlimited,
+        supports_hotspot: schema.products.supportsHotspot,
+        network_type: schema.products.networkType,
+        price_amount: schema.products.priceAmount,
+        price_currency: schema.products.priceCurrency,
+        purchase_url: schema.products.purchaseUrl,
+        coverage_regions_json: schema.products.coverageRegionsJson,
+        activation_guide_html: schema.products.activationGuideHtml,
+        status: schema.products.status,
+        publish_at: schema.products.publishAt,
+        published_at: schema.products.publishedAt,
+        created_at: schema.products.createdAt,
+        updated_at: schema.products.updatedAt
+      })
+      .from(schema.products)
+      .orderBy(desc(schema.products.updatedAt))
+      .limit(20000)
+  }
+  return db
+    .select({
+      id: schema.posts.id,
+      category_id: schema.posts.categoryId,
+      post_type: schema.posts.postType,
+      ref_slug: schema.posts.refSlug,
+      title: schema.posts.title,
+      slug: schema.posts.slug,
+      excerpt: schema.posts.excerpt,
+      content_html: schema.posts.contentHtml,
+      cover_image_key: schema.posts.coverImageKey,
+      locale: schema.posts.locale,
+      status: schema.posts.status,
+      publish_at: schema.posts.publishAt,
+      published_at: schema.posts.publishedAt,
+      created_at: schema.posts.createdAt,
+      updated_at: schema.posts.updatedAt
+    })
+    .from(schema.posts)
+    .orderBy(desc(schema.posts.updatedAt))
+    .limit(20000)
+}
+
+async function upsertEntityRow(db: ReturnType<typeof getDb>, entity: Entity, r: Record<string, unknown>): Promise<void> {
+  if (entity === 'categories') {
+    await db.insert(schema.categories).values({
+      id: String(r.id),
+      parentId: asStr(r.parent_id) || null,
+      name: String(r.name),
+      slug: String(r.slug),
+      sortOrder: toInt(r.sort_order) ?? 0,
+      createdAt: String(r.created_at),
+      updatedAt: String(r.updated_at)
+    }).onConflictDoUpdate({
+      target: schema.categories.id,
+      set: {
+        parentId: asStr(r.parent_id) || null,
+        name: String(r.name),
+        slug: String(r.slug),
+        sortOrder: toInt(r.sort_order) ?? 0,
+        updatedAt: String(r.updated_at)
+      }
+    })
+    return
+  }
+  if (entity === 'countries') {
+    const publishedAt = asStr(r.published_at)
+    await db.insert(schema.countries).values({
+      id: String(r.id),
+      iso2: String(r.iso2),
+      name: String(r.name),
+      slug: String(r.slug),
+      heroImageKey: asStr(r.hero_image_key) || null,
+      seoTitle: asStr(r.seo_title) || null,
+      seoDescription: asStr(r.seo_description) || null,
+      contentHtml: asStr(r.content_html) || null,
+      faqJson: asStr(r.faq_json) || '[]',
+      status: String(r.status),
+      publishAt: asStr(r.publish_at) || null,
+      publishedAt,
+      createdAt: String(r.created_at),
+      updatedAt: String(r.updated_at)
+    }).onConflictDoUpdate({
+      target: schema.countries.id,
+      set: {
+        iso2: String(r.iso2),
+        name: String(r.name),
+        slug: String(r.slug),
+        heroImageKey: asStr(r.hero_image_key) || null,
+        seoTitle: asStr(r.seo_title) || null,
+        seoDescription: asStr(r.seo_description) || null,
+        contentHtml: asStr(r.content_html) || null,
+        faqJson: asStr(r.faq_json) || '[]',
+        status: String(r.status),
+        publishAt: asStr(r.publish_at) || null,
+        publishedAt: publishedAt ?? sql`${schema.countries.publishedAt}`,
+        updatedAt: String(r.updated_at)
+      }
+    })
+    return
+  }
+  if (entity === 'operators') {
+    const publishedAt = asStr(r.published_at)
+    await db.insert(schema.operators).values({
+      id: String(r.id),
+      name: String(r.name),
+      slug: String(r.slug),
+      websiteUrl: String(r.website_url),
+      logoImageKey: asStr(r.logo_image_key) || null,
+      supportChannelsJson: asStr(r.support_channels_json) || null,
+      seoTitle: asStr(r.seo_title) || null,
+      seoDescription: asStr(r.seo_description) || null,
+      contentHtml: asStr(r.content_html) || null,
+      faqJson: asStr(r.faq_json) || '[]',
+      status: String(r.status),
+      publishAt: asStr(r.publish_at) || null,
+      publishedAt,
+      createdAt: String(r.created_at),
+      updatedAt: String(r.updated_at)
+    }).onConflictDoUpdate({
+      target: schema.operators.id,
+      set: {
+        name: String(r.name),
+        slug: String(r.slug),
+        websiteUrl: String(r.website_url),
+        logoImageKey: asStr(r.logo_image_key) || null,
+        supportChannelsJson: asStr(r.support_channels_json) || null,
+        seoTitle: asStr(r.seo_title) || null,
+        seoDescription: asStr(r.seo_description) || null,
+        contentHtml: asStr(r.content_html) || null,
+        faqJson: asStr(r.faq_json) || '[]',
+        status: String(r.status),
+        publishAt: asStr(r.publish_at) || null,
+        publishedAt: publishedAt ?? sql`${schema.operators.publishedAt}`,
+        updatedAt: String(r.updated_at)
+      }
+    })
+    return
+  }
+  if (entity === 'products') {
+    const publishedAt = asStr(r.published_at)
+    await db.insert(schema.products).values({
+      id: String(r.id),
+      operatorId: String(r.operator_id),
+      categoryId: asStr(r.category_id) || null,
+      countryIso2: String(r.country_iso2),
+      name: String(r.name),
+      slug: String(r.slug),
+      dataGb: toNum(r.data_gb),
+      days: Number(r.days),
+      isUnlimited: toInt(r.is_unlimited) ?? 0,
+      supportsHotspot: toInt(r.supports_hotspot) ?? 1,
+      networkType: asStr(r.network_type) || null,
+      priceAmount: Number(r.price_amount),
+      priceCurrency: String(r.price_currency),
+      purchaseUrl: String(r.purchase_url),
+      coverageRegionsJson: asStr(r.coverage_regions_json) || null,
+      activationGuideHtml: asStr(r.activation_guide_html) || null,
+      status: String(r.status),
+      publishAt: asStr(r.publish_at) || null,
+      publishedAt,
+      createdAt: String(r.created_at),
+      updatedAt: String(r.updated_at)
+    }).onConflictDoUpdate({
+      target: schema.products.id,
+      set: {
+        operatorId: String(r.operator_id),
+        categoryId: asStr(r.category_id) || null,
+        countryIso2: String(r.country_iso2),
+        name: String(r.name),
+        slug: String(r.slug),
+        dataGb: toNum(r.data_gb),
+        days: Number(r.days),
+        isUnlimited: toInt(r.is_unlimited) ?? 0,
+        supportsHotspot: toInt(r.supports_hotspot) ?? 1,
+        networkType: asStr(r.network_type) || null,
+        priceAmount: Number(r.price_amount),
+        priceCurrency: String(r.price_currency),
+        purchaseUrl: String(r.purchase_url),
+        coverageRegionsJson: asStr(r.coverage_regions_json) || null,
+        activationGuideHtml: asStr(r.activation_guide_html) || null,
+        status: String(r.status),
+        publishAt: asStr(r.publish_at) || null,
+        publishedAt: publishedAt ?? sql`${schema.products.publishedAt}`,
+        updatedAt: String(r.updated_at)
+      }
+    })
+    return
+  }
+  const publishedAt = asStr(r.published_at)
+  await db.insert(schema.posts).values({
+    id: String(r.id),
+    categoryId: asStr(r.category_id) || null,
+    postType: String(r.post_type),
+    refSlug: asStr(r.ref_slug) || null,
+    title: String(r.title),
+    slug: String(r.slug),
+    excerpt: asStr(r.excerpt) || null,
+    contentHtml: String(r.content_html),
+    coverImageKey: asStr(r.cover_image_key) || null,
+    locale: String(r.locale),
+    status: String(r.status),
+    publishAt: asStr(r.publish_at) || null,
+    publishedAt,
+    createdAt: String(r.created_at),
+    updatedAt: String(r.updated_at)
+  }).onConflictDoUpdate({
+    target: schema.posts.id,
+    set: {
+      categoryId: asStr(r.category_id) || null,
+      postType: String(r.post_type),
+      refSlug: asStr(r.ref_slug) || null,
+      title: String(r.title),
+      slug: String(r.slug),
+      excerpt: asStr(r.excerpt) || null,
+      contentHtml: String(r.content_html),
+      coverImageKey: asStr(r.cover_image_key) || null,
+      locale: String(r.locale),
+      status: String(r.status),
+      publishAt: asStr(r.publish_at) || null,
+      publishedAt: publishedAt ?? sql`${schema.posts.publishedAt}`,
+      updatedAt: String(r.updated_at)
     }
-  }
-  return {
-    sql: 'INSERT INTO posts (id, category_id, post_type, ref_slug, title, slug, excerpt, content_html, cover_image_key, locale, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET category_id=excluded.category_id,post_type=excluded.post_type,ref_slug=excluded.ref_slug,title=excluded.title,slug=excluded.slug,excerpt=excluded.excerpt,content_html=excluded.content_html,cover_image_key=excluded.cover_image_key,locale=excluded.locale,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,posts.published_at),updated_at=excluded.updated_at',
-    bind: (r) => [
-      r.id,
-      r.category_id,
-      r.post_type,
-      r.ref_slug,
-      r.title,
-      r.slug,
-      r.excerpt,
-      r.content_html,
-      r.cover_image_key,
-      r.locale,
-      r.status,
-      r.publish_at,
-      r.published_at,
-      r.created_at,
-      r.updated_at
-    ]
-  }
+  })
 }
 
 function normalize(entity: Entity, item: Record<string, unknown>, now: string): Record<string, unknown> | null {

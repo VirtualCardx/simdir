@@ -1,6 +1,9 @@
 import type { Bindings } from './env'
+import { and, eq, isNotNull, lte } from 'drizzle-orm'
+import * as schema from './db/schema'
 import { Router } from './lib/router'
 import { cacheGet, cachePut } from './lib/cache'
+import { getDb } from './lib/db'
 import { notFound } from './lib/http'
 import { bootstrapAdminIfNeeded } from './lib/db'
 import { getObjectResponse } from './lib/media'
@@ -170,14 +173,15 @@ export default {
   },
   async scheduled(event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
     const now = new Date().toISOString()
-    const publish = async (table: string) => {
-      await env.DB.prepare(
-        `UPDATE ${table} SET status='published', published_at=?, updated_at=? WHERE status='scheduled' AND publish_at IS NOT NULL AND publish_at <= ?`
-      )
-        .bind(now, now, now)
-        .run()
+    const db = getDb(env.DB)
+    const publishTargets = [schema.countries, schema.operators, schema.products, schema.posts] as const
+    const publish = async (table: (typeof publishTargets)[number]) => {
+      await db
+        .update(table)
+        .set({ status: 'published', publishedAt: now, updatedAt: now })
+        .where(and(eq(table.status, 'scheduled'), isNotNull(table.publishAt), lte(table.publishAt, now)))
     }
-    ctx.waitUntil(Promise.all([publish('countries'), publish('operators'), publish('products'), publish('posts')]).then(() => undefined))
+    ctx.waitUntil(Promise.all(publishTargets.map((table) => publish(table))).then(() => undefined))
   }
 }
 

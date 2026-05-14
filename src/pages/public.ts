@@ -1,5 +1,7 @@
 import type { Bindings } from '../env'
-import { dbAll, dbGet } from '../lib/db'
+import { and, asc as orderAsc, desc as orderDesc, eq, like, ne, or, sql } from 'drizzle-orm'
+import * as schema from '../db/schema'
+import { getDb } from '../lib/db'
 import { html } from '../lib/http'
 import { autoDescription, escapeHtml } from '../lib/seo'
 import { criticalCss, layout } from '../lib/templates'
@@ -26,6 +28,20 @@ type Post = {
 type SearchCountry = { name: string; name_zh: string | null; name_en: string | null; slug: string; iso2: string }
 type SearchOperator = { name: string; name_zh: string | null; name_en: string | null; slug: string; logo_image_key: string | null }
 type CategorySummary = { name: string; slug: string; post_count: number }
+
+const postListSelection = {
+  title: schema.posts.title,
+  slug: schema.posts.slug,
+  excerpt: schema.posts.excerpt,
+  content_html: schema.posts.contentHtml,
+  cover_image_key: schema.posts.coverImageKey,
+  locale: schema.posts.locale,
+  post_type: schema.posts.postType,
+  category_name: schema.categories.name,
+  category_slug: schema.categories.slug,
+  published_at: schema.posts.publishedAt,
+  updated_at: schema.posts.updatedAt
+}
 
 function localizedText(locale: SiteLocale, zh: string | null | undefined, en: string | null | undefined, fallback: string): string {
   const primary = locale === 'zh' ? zh : en
@@ -73,19 +89,42 @@ export async function homePage(env: Bindings, req: Request): Promise<Response> {
   const site = await getSiteSettings(env)
   const siteTitle = resolveSiteTitle(env, site, locale)
   const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
+  const db = getDb(env.DB)
   const [countries, operators, postCategories] = await Promise.all([
-    dbAll<{ name: string; name_zh: string | null; name_en: string | null; slug: string }>(
-      env.DB,
-      "SELECT name, name_zh, name_en, slug FROM countries WHERE status='published' ORDER BY COALESCE(name_en, name_zh, name) ASC LIMIT 60"
-    ),
-    dbAll<{ name: string; name_zh: string | null; name_en: string | null; slug: string; logo_image_key: string | null }>(
-      env.DB,
-      "SELECT name, name_zh, name_en, slug, logo_image_key FROM operators WHERE status='published' ORDER BY updated_at DESC LIMIT 12"
-    ),
-    dbAll<CategorySummary>(
-      env.DB,
-      "SELECT c.name, c.slug, COUNT(DISTINCT COALESCE(NULLIF(p.ref_slug, ''), p.slug)) as post_count FROM categories c LEFT JOIN posts p ON p.category_id=c.id AND p.status='published' GROUP BY c.id, c.name, c.slug ORDER BY post_count DESC, c.sort_order ASC, c.name ASC LIMIT 8"
-    )
+    db
+      .select({
+        name: schema.countries.name,
+        name_zh: schema.countries.nameZh,
+        name_en: schema.countries.nameEn,
+        slug: schema.countries.slug
+      })
+      .from(schema.countries)
+      .where(eq(schema.countries.status, 'published'))
+      .orderBy(sql`coalesce(${schema.countries.nameEn}, ${schema.countries.nameZh}, ${schema.countries.name}) asc`)
+      .limit(60),
+    db
+      .select({
+        name: schema.operators.name,
+        name_zh: schema.operators.nameZh,
+        name_en: schema.operators.nameEn,
+        slug: schema.operators.slug,
+        logo_image_key: schema.operators.logoImageKey
+      })
+      .from(schema.operators)
+      .where(eq(schema.operators.status, 'published'))
+      .orderBy(orderDesc(schema.operators.updatedAt))
+      .limit(12),
+    db
+      .select({
+        name: schema.categories.name,
+        slug: schema.categories.slug,
+        post_count: sql<number>`count(distinct coalesce(nullif(${schema.posts.refSlug}, ''), ${schema.posts.slug}))`
+      })
+      .from(schema.categories)
+      .leftJoin(schema.posts, and(eq(schema.posts.categoryId, schema.categories.id), eq(schema.posts.status, 'published')))
+      .groupBy(schema.categories.id, schema.categories.name, schema.categories.slug, schema.categories.sortOrder)
+      .orderBy(orderDesc(sql`count(distinct coalesce(nullif(${schema.posts.refSlug}, ''), ${schema.posts.slug}))`), orderAsc(schema.categories.sortOrder), orderAsc(schema.categories.name))
+      .limit(8) as Promise<CategorySummary[]>
   ])
   const body = `
   ${publicHeader(env, req, locale, site, [
@@ -194,23 +233,23 @@ export async function postsIndexPage(env: Bindings, req: Request): Promise<Respo
   const url = new URL(req.url)
   const category = (url.searchParams.get('category') ?? '').trim()
   const lang = locale
-  const params: unknown[] = []
-  const where = ["p.status='published'"]
-  if (category) {
-    where.push('c.slug=?')
-    params.push(category)
-  }
-  if (lang) {
-    where.push('lower(p.locale) LIKE ?')
-    params.push(`${lang}%`)
-  }
+  const db = getDb(env.DB)
+  const where = [eq(schema.posts.status, 'published')]
+  if (category) where.push(eq(schema.categories.slug, category))
+  if (lang) where.push(like(schema.posts.locale, `${lang}%`))
   const [posts, categories] = await Promise.all([
-    dbAll<Post>(
-      env.DB,
-      `SELECT p.title, p.slug, p.excerpt, p.content_html, p.cover_image_key, p.locale, p.post_type, c.name as category_name, c.slug as category_slug, p.published_at, p.updated_at FROM posts p LEFT JOIN categories c ON c.id=p.category_id WHERE ${where.join(' AND ')} ORDER BY COALESCE(p.published_at, p.updated_at) DESC LIMIT 200`,
-      params
-    ),
-    dbAll<{ name: string; slug: string }>(env.DB, 'SELECT name, slug FROM categories ORDER BY sort_order ASC, name ASC LIMIT 100')
+    db
+      .select(postListSelection)
+      .from(schema.posts)
+      .leftJoin(schema.categories, eq(schema.categories.id, schema.posts.categoryId))
+      .where(and(...where))
+      .orderBy(orderDesc(sql`coalesce(${schema.posts.publishedAt}, ${schema.posts.updatedAt})`))
+      .limit(200) as Promise<Post[]>,
+    db
+      .select({ name: schema.categories.name, slug: schema.categories.slug })
+      .from(schema.categories)
+      .orderBy(orderAsc(schema.categories.sortOrder), orderAsc(schema.categories.name))
+      .limit(100)
   ])
   const canonical = new URL(postsUrl(category, lang), env.APP_ORIGIN).toString()
   const body = `
@@ -278,17 +317,23 @@ export async function postCategoryPage(env: Bindings, req: Request, slug: string
   const siteTitle = resolveSiteTitle(env, site, locale)
   const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
   const lang = locale
-  const category = await dbGet<{ id: string; name: string; slug: string }>(env.DB, 'SELECT id, name, slug FROM categories WHERE slug=?', [slug])
+  const db = getDb(env.DB)
+  const category = await db
+    .select({ id: schema.categories.id, name: schema.categories.name, slug: schema.categories.slug })
+    .from(schema.categories)
+    .where(eq(schema.categories.slug, slug))
+    .limit(1)
+    .get()
   if (!category) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'public, max-age=60' } })
-  const sql =
-    "SELECT p.title, p.slug, p.excerpt, p.content_html, p.cover_image_key, p.locale, p.post_type, c.name as category_name, c.slug as category_slug, p.published_at, p.updated_at FROM posts p LEFT JOIN categories c ON c.id=p.category_id WHERE p.status='published' AND p.category_id=?"
-    + (lang ? " AND lower(p.locale) LIKE ?" : '')
-    + " ORDER BY COALESCE(p.published_at, p.updated_at) DESC LIMIT 200"
-  const posts = await dbAll<Post>(
-    env.DB,
-    sql,
-    lang ? [category.id, `${lang}%`] : [category.id]
-  )
+  const postWhere = [eq(schema.posts.status, 'published'), eq(schema.posts.categoryId, category.id)]
+  if (lang) postWhere.push(like(schema.posts.locale, `${lang}%`))
+  const posts = await db
+    .select(postListSelection)
+    .from(schema.posts)
+    .leftJoin(schema.categories, eq(schema.categories.id, schema.posts.categoryId))
+    .where(and(...postWhere))
+    .orderBy(orderDesc(sql`coalesce(${schema.posts.publishedAt}, ${schema.posts.updatedAt})`))
+    .limit(200) as Post[]
   const categoryUrl = `/posts/category/${category.slug}`
   const canonical = new URL(categoryUrl, env.APP_ORIGIN).toString()
   const body = `
@@ -355,22 +400,28 @@ export async function postPage(env: Bindings, req: Request, slug: string): Promi
   const site = await getSiteSettings(env)
   const siteTitle = resolveSiteTitle(env, site, locale)
   const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
-  const p = await dbGet<Post>(
-    env.DB,
-    "SELECT p.title, p.slug, p.excerpt, p.content_html, p.cover_image_key, p.locale, p.post_type, c.name as category_name, c.slug as category_slug, p.published_at, p.updated_at FROM posts p LEFT JOIN categories c ON c.id=p.category_id WHERE p.slug=? AND p.status='published' ORDER BY CASE WHEN lower(p.locale) LIKE ? THEN 0 ELSE 1 END, COALESCE(p.published_at, p.updated_at) DESC LIMIT 1",
-    [slug, `${locale}%`]
-  )
+  const db = getDb(env.DB)
+  const p = await db
+    .select(postListSelection)
+    .from(schema.posts)
+    .leftJoin(schema.categories, eq(schema.categories.id, schema.posts.categoryId))
+    .where(and(eq(schema.posts.slug, slug), eq(schema.posts.status, 'published')))
+    .orderBy(sql`case when lower(${schema.posts.locale}) like ${`${locale}%`} then 0 else 1 end`, orderDesc(sql`coalesce(${schema.posts.publishedAt}, ${schema.posts.updatedAt})`))
+    .limit(1)
+    .get() as Post | undefined
   if (!p) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'public, max-age=60' } })
   const canonical = new URL(`/post/${p.slug}`, env.APP_ORIGIN).toString()
   const ogImage = p.cover_image_key ? mediaUrl(env.APP_ORIGIN, p.cover_image_key) : undefined
   const desc = p.excerpt ?? autoDescription(p.content_html)
   const published = p.published_at ?? p.updated_at
   const related = p.category_slug
-    ? await dbAll<{ title: string; slug: string }>(
-        env.DB,
-        "SELECT p.title, p.slug FROM posts p LEFT JOIN categories c ON c.id=p.category_id WHERE p.status='published' AND c.slug=? AND p.slug<>? AND lower(p.locale) LIKE ? ORDER BY COALESCE(p.published_at, p.updated_at) DESC LIMIT 4",
-        [p.category_slug, p.slug, `${normalizeLocale(p.locale) || 'en'}%`]
-      )
+    ? await db
+        .select({ title: schema.posts.title, slug: schema.posts.slug })
+        .from(schema.posts)
+        .leftJoin(schema.categories, eq(schema.categories.id, schema.posts.categoryId))
+        .where(and(eq(schema.posts.status, 'published'), eq(schema.categories.slug, p.category_slug), ne(schema.posts.slug, p.slug), like(schema.posts.locale, `${normalizeLocale(p.locale) || 'en'}%`)))
+        .orderBy(orderDesc(sql`coalesce(${schema.posts.publishedAt}, ${schema.posts.updatedAt})`))
+        .limit(4)
     : []
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -429,41 +480,104 @@ export async function searchPage(env: Bindings, req: Request): Promise<Response>
   const site = await getSiteSettings(env)
   const siteTitle = resolveSiteTitle(env, site, locale)
   const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
+  const db = getDb(env.DB)
   const url = new URL(req.url)
   const q = (url.searchParams.get('q') ?? '').trim()
   const country = (url.searchParams.get('country') ?? '').trim().toLowerCase()
   const qLike = q ? `%${q.toLowerCase()}%` : null
   const [countries, operators, products] = await Promise.all([
     qLike
-      ? dbAll<SearchCountry>(
-          env.DB,
-          "SELECT name, name_zh, name_en, slug, iso2 FROM countries WHERE status='published' AND (lower(name) LIKE ? OR lower(COALESCE(name_zh, '')) LIKE ? OR lower(COALESCE(name_en, '')) LIKE ? OR lower(slug) LIKE ? OR lower(iso2) LIKE ?) ORDER BY COALESCE(name_en, name_zh, name) ASC LIMIT 12",
-          [qLike, qLike, qLike, qLike, qLike]
-        )
+      ? db
+          .select({
+            name: schema.countries.name,
+            name_zh: schema.countries.nameZh,
+            name_en: schema.countries.nameEn,
+            slug: schema.countries.slug,
+            iso2: schema.countries.iso2
+          })
+          .from(schema.countries)
+          .where(and(
+            eq(schema.countries.status, 'published'),
+            or(
+              like(sql`lower(${schema.countries.name})`, qLike),
+              like(sql`lower(coalesce(${schema.countries.nameZh}, ''))`, qLike),
+              like(sql`lower(coalesce(${schema.countries.nameEn}, ''))`, qLike),
+              like(sql`lower(${schema.countries.slug})`, qLike),
+              like(sql`lower(${schema.countries.iso2})`, qLike)
+            )!
+          ))
+          .orderBy(sql`coalesce(${schema.countries.nameEn}, ${schema.countries.nameZh}, ${schema.countries.name}) asc`)
+          .limit(12) as Promise<SearchCountry[]>
       : Promise.resolve([]),
     qLike
-      ? dbAll<SearchOperator>(
-          env.DB,
-          "SELECT name, name_zh, name_en, slug, logo_image_key FROM operators WHERE status='published' AND (lower(name) LIKE ? OR lower(COALESCE(name_zh, '')) LIKE ? OR lower(COALESCE(name_en, '')) LIKE ? OR lower(slug) LIKE ?) ORDER BY updated_at DESC LIMIT 12",
-          [qLike, qLike, qLike, qLike]
-        )
+      ? db
+          .select({
+            name: schema.operators.name,
+            name_zh: schema.operators.nameZh,
+            name_en: schema.operators.nameEn,
+            slug: schema.operators.slug,
+            logo_image_key: schema.operators.logoImageKey
+          })
+          .from(schema.operators)
+          .where(and(
+            eq(schema.operators.status, 'published'),
+            or(
+              like(sql`lower(${schema.operators.name})`, qLike),
+              like(sql`lower(coalesce(${schema.operators.nameZh}, ''))`, qLike),
+              like(sql`lower(coalesce(${schema.operators.nameEn}, ''))`, qLike),
+              like(sql`lower(${schema.operators.slug})`, qLike)
+            )!
+          ))
+          .orderBy(orderDesc(schema.operators.updatedAt))
+          .limit(12) as Promise<SearchOperator[]>
       : Promise.resolve([]),
     (() => {
-      const where: string[] = ["p.status='published'", "o.status='published'", "c.status='published'"]
-      const params: unknown[] = []
-      if (country) {
-        where.push('p.country_iso2=?')
-        params.push(country)
-      }
+      const where = [
+        eq(schema.products.status, 'published'),
+        eq(schema.operators.status, 'published'),
+        eq(schema.countries.status, 'published')
+      ]
+      if (country) where.push(eq(schema.products.countryIso2, country))
       if (qLike) {
-        where.push("(lower(p.name) LIKE ? OR lower(COALESCE(p.name_zh, '')) LIKE ? OR lower(COALESCE(p.name_en, '')) LIKE ? OR lower(o.name) LIKE ? OR lower(COALESCE(o.name_zh, '')) LIKE ? OR lower(COALESCE(o.name_en, '')) LIKE ? OR lower(c.name) LIKE ? OR lower(COALESCE(c.name_zh, '')) LIKE ? OR lower(COALESCE(c.name_en, '')) LIKE ? OR lower(c.slug) LIKE ? OR lower(c.iso2) LIKE ?)")
-        params.push(qLike, qLike, qLike, qLike, qLike, qLike, qLike, qLike, qLike, qLike, qLike)
+        where.push(or(
+          like(sql`lower(${schema.products.name})`, qLike),
+          like(sql`lower(coalesce(${schema.products.nameZh}, ''))`, qLike),
+          like(sql`lower(coalesce(${schema.products.nameEn}, ''))`, qLike),
+          like(sql`lower(${schema.operators.name})`, qLike),
+          like(sql`lower(coalesce(${schema.operators.nameZh}, ''))`, qLike),
+          like(sql`lower(coalesce(${schema.operators.nameEn}, ''))`, qLike),
+          like(sql`lower(${schema.countries.name})`, qLike),
+          like(sql`lower(coalesce(${schema.countries.nameZh}, ''))`, qLike),
+          like(sql`lower(coalesce(${schema.countries.nameEn}, ''))`, qLike),
+          like(sql`lower(${schema.countries.slug})`, qLike),
+          like(sql`lower(${schema.countries.iso2})`, qLike)
+        )!)
       }
-      return dbAll<Product>(
-        env.DB,
-        `SELECT p.name, p.name_zh, p.name_en, p.slug, p.days, p.data_gb, p.is_unlimited, p.supports_hotspot, p.network_type, p.price_amount, p.price_currency, p.purchase_url, o.name as operator_name, o.name_zh as operator_name_zh, o.name_en as operator_name_en, o.slug as operator_slug FROM products p JOIN operators o ON o.id=p.operator_id JOIN countries c ON c.iso2=p.country_iso2 WHERE ${where.join(' AND ')} ORDER BY p.price_amount ASC LIMIT 100`,
-        params
-      )
+      return db
+        .select({
+          name: schema.products.name,
+          name_zh: schema.products.nameZh,
+          name_en: schema.products.nameEn,
+          slug: schema.products.slug,
+          days: schema.products.days,
+          data_gb: schema.products.dataGb,
+          is_unlimited: schema.products.isUnlimited,
+          supports_hotspot: schema.products.supportsHotspot,
+          network_type: schema.products.networkType,
+          price_amount: schema.products.priceAmount,
+          price_currency: schema.products.priceCurrency,
+          purchase_url: schema.products.purchaseUrl,
+          operator_name: schema.operators.name,
+          operator_name_zh: schema.operators.nameZh,
+          operator_name_en: schema.operators.nameEn,
+          operator_slug: schema.operators.slug
+        })
+        .from(schema.products)
+        .innerJoin(schema.operators, eq(schema.operators.id, schema.products.operatorId))
+        .innerJoin(schema.countries, eq(schema.countries.iso2, schema.products.countryIso2))
+        .where(and(...where))
+        .orderBy(orderAsc(schema.products.priceAmount))
+        .limit(100) as Promise<Product[]>
     })()
   ])
   const canonical = new URL(`/search?${url.searchParams.toString()}`, env.APP_ORIGIN).toString()
@@ -539,11 +653,40 @@ export async function productPage(env: Bindings, req: Request, slug: string): Pr
   const site = await getSiteSettings(env)
   const siteTitle = resolveSiteTitle(env, site, locale)
   const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
-  const p = await dbGet<Record<string, unknown>>(
-    env.DB,
-    "SELECT p.id, p.name, p.name_zh, p.name_en, p.slug, p.days, p.data_gb, p.is_unlimited, p.supports_hotspot, p.network_type, p.price_amount, p.price_currency, p.purchase_url, p.coverage_regions_json, p.activation_guide_html, p.activation_guide_html_zh, p.activation_guide_html_en, p.country_iso2, o.name as operator_name, o.name_zh as operator_name_zh, o.name_en as operator_name_en, o.slug as operator_slug, o.website_url as operator_website, p.status, p.updated_at FROM products p JOIN operators o ON o.id=p.operator_id WHERE p.slug=? AND p.status='published' AND o.status='published'",
-    [slug]
-  )
+  const db = getDb(env.DB)
+  const p = await db
+    .select({
+      id: schema.products.id,
+      name: schema.products.name,
+      name_zh: schema.products.nameZh,
+      name_en: schema.products.nameEn,
+      slug: schema.products.slug,
+      days: schema.products.days,
+      data_gb: schema.products.dataGb,
+      is_unlimited: schema.products.isUnlimited,
+      supports_hotspot: schema.products.supportsHotspot,
+      network_type: schema.products.networkType,
+      price_amount: schema.products.priceAmount,
+      price_currency: schema.products.priceCurrency,
+      purchase_url: schema.products.purchaseUrl,
+      coverage_regions_json: schema.products.coverageRegionsJson,
+      activation_guide_html: schema.products.activationGuideHtml,
+      activation_guide_html_zh: schema.products.activationGuideHtmlZh,
+      activation_guide_html_en: schema.products.activationGuideHtmlEn,
+      country_iso2: schema.products.countryIso2,
+      operator_name: schema.operators.name,
+      operator_name_zh: schema.operators.nameZh,
+      operator_name_en: schema.operators.nameEn,
+      operator_slug: schema.operators.slug,
+      operator_website: schema.operators.websiteUrl,
+      status: schema.products.status,
+      updated_at: schema.products.updatedAt
+    })
+    .from(schema.products)
+    .innerJoin(schema.operators, eq(schema.operators.id, schema.products.operatorId))
+    .where(and(eq(schema.products.slug, slug), eq(schema.products.status, 'published'), eq(schema.operators.status, 'published')))
+    .limit(1)
+    .get()
   if (!p) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'public, max-age=60' } })
   const canonical = new URL(`/product/${String(p.slug)}`, env.APP_ORIGIN).toString()
   const productName = localizedText(locale, String(p.name_zh ?? ''), String(p.name_en ?? ''), String(p.name))
@@ -615,17 +758,55 @@ export async function countryPage(env: Bindings, req: Request, slug: string): Pr
   const site = await getSiteSettings(env)
   const siteTitle = resolveSiteTitle(env, site, locale)
   const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
-  const c = await dbGet<Country>(
-    env.DB,
-    "SELECT name, name_zh, name_en, slug, iso2, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, hero_image_key, faq_json FROM countries WHERE slug=? AND status='published'",
-    [slug]
-  )
+  const db = getDb(env.DB)
+  const c = await db
+    .select({
+      name: schema.countries.name,
+      name_zh: schema.countries.nameZh,
+      name_en: schema.countries.nameEn,
+      slug: schema.countries.slug,
+      iso2: schema.countries.iso2,
+      seo_title: schema.countries.seoTitle,
+      seo_title_zh: schema.countries.seoTitleZh,
+      seo_title_en: schema.countries.seoTitleEn,
+      seo_description: schema.countries.seoDescription,
+      seo_description_zh: schema.countries.seoDescriptionZh,
+      seo_description_en: schema.countries.seoDescriptionEn,
+      content_html: schema.countries.contentHtml,
+      content_html_zh: schema.countries.contentHtmlZh,
+      content_html_en: schema.countries.contentHtmlEn,
+      hero_image_key: schema.countries.heroImageKey,
+      faq_json: schema.countries.faqJson
+    })
+    .from(schema.countries)
+    .where(and(eq(schema.countries.slug, slug), eq(schema.countries.status, 'published')))
+    .limit(1)
+    .get() as Country | undefined
   if (!c) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'public, max-age=60' } })
-  const products = await dbAll<Product>(
-    env.DB,
-    "SELECT p.name, p.name_zh, p.name_en, p.slug, p.days, p.data_gb, p.is_unlimited, p.supports_hotspot, p.network_type, p.price_amount, p.price_currency, p.purchase_url, o.name as operator_name, o.name_zh as operator_name_zh, o.name_en as operator_name_en, o.slug as operator_slug FROM products p JOIN operators o ON o.id=p.operator_id WHERE p.country_iso2=? AND p.status='published' AND o.status='published' ORDER BY p.price_amount ASC LIMIT 100",
-    [c.iso2]
-  )
+  const products = await db
+    .select({
+      name: schema.products.name,
+      name_zh: schema.products.nameZh,
+      name_en: schema.products.nameEn,
+      slug: schema.products.slug,
+      days: schema.products.days,
+      data_gb: schema.products.dataGb,
+      is_unlimited: schema.products.isUnlimited,
+      supports_hotspot: schema.products.supportsHotspot,
+      network_type: schema.products.networkType,
+      price_amount: schema.products.priceAmount,
+      price_currency: schema.products.priceCurrency,
+      purchase_url: schema.products.purchaseUrl,
+      operator_name: schema.operators.name,
+      operator_name_zh: schema.operators.nameZh,
+      operator_name_en: schema.operators.nameEn,
+      operator_slug: schema.operators.slug
+    })
+    .from(schema.products)
+    .innerJoin(schema.operators, eq(schema.operators.id, schema.products.operatorId))
+    .where(and(eq(schema.products.countryIso2, c.iso2), eq(schema.products.status, 'published'), eq(schema.operators.status, 'published')))
+    .orderBy(orderAsc(schema.products.priceAmount))
+    .limit(100) as Product[]
   const ogImage = c.hero_image_key ? mediaUrl(env.APP_ORIGIN, c.hero_image_key) : undefined
   const canonical = new URL(`/country/${c.slug}`, env.APP_ORIGIN).toString()
   const countryName = localizedText(locale, c.name_zh, c.name_en, c.name)
@@ -706,17 +887,53 @@ export async function operatorPage(env: Bindings, req: Request, slug: string): P
   const site = await getSiteSettings(env)
   const siteTitle = resolveSiteTitle(env, site, locale)
   const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
-  const o = await dbGet<Operator>(
-    env.DB,
-    "SELECT name, name_zh, name_en, slug, website_url, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, logo_image_key, faq_json FROM operators WHERE slug=? AND status='published'",
-    [slug]
-  )
+  const db = getDb(env.DB)
+  const o = await db
+    .select({
+      name: schema.operators.name,
+      name_zh: schema.operators.nameZh,
+      name_en: schema.operators.nameEn,
+      slug: schema.operators.slug,
+      website_url: schema.operators.websiteUrl,
+      seo_title: schema.operators.seoTitle,
+      seo_title_zh: schema.operators.seoTitleZh,
+      seo_title_en: schema.operators.seoTitleEn,
+      seo_description: schema.operators.seoDescription,
+      seo_description_zh: schema.operators.seoDescriptionZh,
+      seo_description_en: schema.operators.seoDescriptionEn,
+      content_html: schema.operators.contentHtml,
+      content_html_zh: schema.operators.contentHtmlZh,
+      content_html_en: schema.operators.contentHtmlEn,
+      logo_image_key: schema.operators.logoImageKey,
+      faq_json: schema.operators.faqJson
+    })
+    .from(schema.operators)
+    .where(and(eq(schema.operators.slug, slug), eq(schema.operators.status, 'published')))
+    .limit(1)
+    .get() as Operator | undefined
   if (!o) return new Response('Not Found', { status: 404, headers: { 'Cache-Control': 'public, max-age=60' } })
-  const products = await dbAll<{ slug: string; name: string; name_zh: string | null; name_en: string | null; days: number; data_gb: number | null; is_unlimited: number; supports_hotspot: number; network_type: string | null; price_amount: number; price_currency: string; purchase_url: string; country_iso2: string }>(
-    env.DB,
-    "SELECT slug, name, name_zh, name_en, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, country_iso2 FROM products WHERE operator_id=(SELECT id FROM operators WHERE slug=?) AND status='published' ORDER BY price_amount ASC LIMIT 200",
-    [slug]
-  )
+  const operatorProducts = await db
+    .select({
+      slug: schema.products.slug,
+      name: schema.products.name,
+      name_zh: schema.products.nameZh,
+      name_en: schema.products.nameEn,
+      days: schema.products.days,
+      data_gb: schema.products.dataGb,
+      is_unlimited: schema.products.isUnlimited,
+      supports_hotspot: schema.products.supportsHotspot,
+      network_type: schema.products.networkType,
+      price_amount: schema.products.priceAmount,
+      price_currency: schema.products.priceCurrency,
+      purchase_url: schema.products.purchaseUrl,
+      country_iso2: schema.products.countryIso2
+    })
+    .from(schema.products)
+    .innerJoin(schema.operators, eq(schema.operators.id, schema.products.operatorId))
+    .where(and(eq(schema.operators.slug, slug), eq(schema.products.status, 'published')))
+    .orderBy(orderAsc(schema.products.priceAmount))
+    .limit(200)
+  const products = operatorProducts
   const ogImage = o.logo_image_key ? mediaUrl(env.APP_ORIGIN, o.logo_image_key) : undefined
   const canonical = new URL(`/operator/${o.slug}`, env.APP_ORIGIN).toString()
   const operatorName = localizedText(locale, o.name_zh, o.name_en, o.name)

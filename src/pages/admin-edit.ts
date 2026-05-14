@@ -1,6 +1,8 @@
 import type { Bindings } from '../env'
+import { and, asc, desc, eq, like, ne, or, sql } from 'drizzle-orm'
+import * as schema from '../db/schema'
 import { requireAdmin } from '../lib/auth'
-import { dbAll, dbGet } from '../lib/db'
+import { getDb } from '../lib/db'
 import { html, redirect, badRequest, unauthorized } from '../lib/http'
 import { nowIso, ulid } from '../lib/ids'
 import { escapeHtml } from '../lib/seo'
@@ -99,6 +101,88 @@ type PostRow = {
   publish_at: string | null
 }
 
+const countryRowSelection = {
+  id: schema.countries.id,
+  iso2: schema.countries.iso2,
+  name: schema.countries.name,
+  name_zh: schema.countries.nameZh,
+  name_en: schema.countries.nameEn,
+  slug: schema.countries.slug,
+  hero_image_key: schema.countries.heroImageKey,
+  seo_title: schema.countries.seoTitle,
+  seo_title_zh: schema.countries.seoTitleZh,
+  seo_title_en: schema.countries.seoTitleEn,
+  seo_description: schema.countries.seoDescription,
+  seo_description_zh: schema.countries.seoDescriptionZh,
+  seo_description_en: schema.countries.seoDescriptionEn,
+  content_html: schema.countries.contentHtml,
+  content_html_zh: schema.countries.contentHtmlZh,
+  content_html_en: schema.countries.contentHtmlEn,
+  faq_json: schema.countries.faqJson,
+  status: schema.countries.status,
+  publish_at: schema.countries.publishAt
+}
+
+const operatorRowSelection = {
+  id: schema.operators.id,
+  name: schema.operators.name,
+  name_zh: schema.operators.nameZh,
+  name_en: schema.operators.nameEn,
+  slug: schema.operators.slug,
+  website_url: schema.operators.websiteUrl,
+  logo_image_key: schema.operators.logoImageKey,
+  seo_title: schema.operators.seoTitle,
+  seo_title_zh: schema.operators.seoTitleZh,
+  seo_title_en: schema.operators.seoTitleEn,
+  seo_description: schema.operators.seoDescription,
+  seo_description_zh: schema.operators.seoDescriptionZh,
+  seo_description_en: schema.operators.seoDescriptionEn,
+  content_html: schema.operators.contentHtml,
+  content_html_zh: schema.operators.contentHtmlZh,
+  content_html_en: schema.operators.contentHtmlEn,
+  faq_json: schema.operators.faqJson,
+  status: schema.operators.status,
+  publish_at: schema.operators.publishAt
+}
+
+const productRowSelection = {
+  id: schema.products.id,
+  operator_id: schema.products.operatorId,
+  name: schema.products.name,
+  name_zh: schema.products.nameZh,
+  name_en: schema.products.nameEn,
+  slug: schema.products.slug,
+  country_iso2: schema.products.countryIso2,
+  days: schema.products.days,
+  data_gb: schema.products.dataGb,
+  is_unlimited: schema.products.isUnlimited,
+  supports_hotspot: schema.products.supportsHotspot,
+  network_type: schema.products.networkType,
+  price_amount: schema.products.priceAmount,
+  price_currency: schema.products.priceCurrency,
+  purchase_url: schema.products.purchaseUrl,
+  activation_guide_html: schema.products.activationGuideHtml,
+  activation_guide_html_zh: schema.products.activationGuideHtmlZh,
+  activation_guide_html_en: schema.products.activationGuideHtmlEn,
+  status: schema.products.status,
+  publish_at: schema.products.publishAt
+}
+
+const postRowSelection = {
+  id: schema.posts.id,
+  category_id: schema.posts.categoryId,
+  post_type: schema.posts.postType,
+  ref_slug: schema.posts.refSlug,
+  title: schema.posts.title,
+  slug: schema.posts.slug,
+  excerpt: schema.posts.excerpt,
+  content_html: schema.posts.contentHtml,
+  cover_image_key: schema.posts.coverImageKey,
+  locale: schema.posts.locale,
+  status: schema.posts.status,
+  publish_at: schema.posts.publishAt
+}
+
 type SiteSettingsRow = {
   site_title: string | null
   site_title_zh: string | null
@@ -185,19 +269,43 @@ function isValidUrl(url: string): boolean {
 }
 
 async function ensureUniqueSlug(env: Bindings, table: string, slug: string, entityId: string): Promise<void> {
-  const row = await env.DB.prepare(`SELECT id FROM ${table} WHERE slug=? AND id<>? LIMIT 1`).bind(slug, entityId).first<{ id: string }>()
+  const db = getDb(env.DB)
+  const lookup = {
+    categories: { table: schema.categories, id: schema.categories.id, slug: schema.categories.slug },
+    countries: { table: schema.countries, id: schema.countries.id, slug: schema.countries.slug },
+    operators: { table: schema.operators, id: schema.operators.id, slug: schema.operators.slug },
+    products: { table: schema.products, id: schema.products.id, slug: schema.products.slug }
+  } as const
+  const target = lookup[table as keyof typeof lookup]
+  if (!target) throw new Error(`Unsupported table: ${table}`)
+  const row = await db
+    .select({ id: target.id })
+    .from(target.table)
+    .where(and(eq(target.slug, slug), ne(target.id, entityId)))
+    .limit(1)
+    .get()
   if (row) throw new Error('Slug already exists')
 }
 
 async function ensureUniquePostSlug(env: Bindings, slug: string, locale: string, entityId: string): Promise<void> {
-  const row = await env.DB.prepare('SELECT id FROM posts WHERE slug=? AND lower(locale) LIKE ? AND id<>? LIMIT 1')
-    .bind(slug, `${locale.toLowerCase()}%`, entityId)
-    .first<{ id: string }>()
+  const db = getDb(env.DB)
+  const row = await db
+    .select({ id: schema.posts.id })
+    .from(schema.posts)
+    .where(and(eq(schema.posts.slug, slug), like(schema.posts.locale, `${locale.toLowerCase()}%`), ne(schema.posts.id, entityId)))
+    .limit(1)
+    .get()
   if (row) throw new Error(`Slug already exists for ${locale}`)
 }
 
 async function ensureUniqueCountryIso2(env: Bindings, iso2: string, entityId: string): Promise<void> {
-  const row = await env.DB.prepare('SELECT id FROM countries WHERE iso2=? AND id<>? LIMIT 1').bind(iso2, entityId).first<{ id: string }>()
+  const db = getDb(env.DB)
+  const row = await db
+    .select({ id: schema.countries.id })
+    .from(schema.countries)
+    .where(and(eq(schema.countries.iso2, iso2), ne(schema.countries.id, entityId)))
+    .limit(1)
+    .get()
   if (row) throw new Error('ISO2 already exists')
 }
 
@@ -206,20 +314,22 @@ async function ensureR2KeyExists(env: Bindings, key: string): Promise<void> {
   if (!head) throw new Error('R2 object not found')
 }
 
-async function ensureExists(env: Bindings, sql: string, params: unknown[], message: string): Promise<void> {
-  const row = await env.DB.prepare(sql).bind(...params).first<{ ok: string }>()
-  if (!row) throw new Error(message)
-}
-
 function ensureJson(value: string, message: string): void {
   if (!value.trim()) return
   JSON.parse(value)
 }
 
 async function writeAudit(env: Bindings, actorUserId: string, action: string, entityType: string, entityId: string, detail: unknown): Promise<void> {
-  await env.DB.prepare('INSERT INTO audit_logs (id, actor_user_id, action, entity_type, entity_id, detail_json, created_at) VALUES (?,?,?,?,?,?,?)')
-    .bind(ulid(), actorUserId, action, entityType, entityId, JSON.stringify(detail ?? null), nowIso())
-    .run()
+  const db = getDb(env.DB)
+  await db.insert(schema.auditLogs).values({
+    id: ulid(),
+    actorUserId,
+    action,
+    entityType,
+    entityId,
+    detailJson: JSON.stringify(detail ?? null),
+    createdAt: nowIso()
+  })
 }
 
 function toPublishedAt(status: string, now: string): string | null {
@@ -773,25 +883,41 @@ export async function adminSaveSiteSettings(env: Bindings, req: Request): Promis
     return redirect(`/admin/settings?error=${encodeURIComponent((error as Error).message)}`)
   }
 
-  await env.DB.prepare(
-    'INSERT INTO site_settings (id, site_title, site_title_zh, site_title_en, site_keywords, site_keywords_zh, site_keywords_en, tagline, tagline_zh, tagline_en, logo_image_key, favicon_image_key, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET site_title=excluded.site_title,site_title_zh=excluded.site_title_zh,site_title_en=excluded.site_title_en,site_keywords=excluded.site_keywords,site_keywords_zh=excluded.site_keywords_zh,site_keywords_en=excluded.site_keywords_en,tagline=excluded.tagline,tagline_zh=excluded.tagline_zh,tagline_en=excluded.tagline_en,logo_image_key=excluded.logo_image_key,favicon_image_key=excluded.favicon_image_key,updated_at=excluded.updated_at'
-  )
-    .bind(
-      'default',
-      siteTitleZh || siteTitleEn,
+  const db = getDb(env.DB)
+  await db
+    .insert(schema.siteSettings)
+    .values({
+      id: 'default',
+      siteTitle: siteTitleZh || siteTitleEn,
       siteTitleZh,
       siteTitleEn,
-      siteKeywordsZh || siteKeywordsEn || null,
-      siteKeywordsZh || null,
-      siteKeywordsEn || null,
-      taglineZh || taglineEn || null,
-      taglineZh || null,
-      taglineEn || null,
-      logo,
-      favicon,
-      nowIso()
-    )
-    .run()
+      siteKeywords: siteKeywordsZh || siteKeywordsEn || null,
+      siteKeywordsZh: siteKeywordsZh || null,
+      siteKeywordsEn: siteKeywordsEn || null,
+      tagline: taglineZh || taglineEn || null,
+      taglineZh: taglineZh || null,
+      taglineEn: taglineEn || null,
+      logoImageKey: logo,
+      faviconImageKey: favicon,
+      updatedAt: nowIso()
+    })
+    .onConflictDoUpdate({
+      target: schema.siteSettings.id,
+      set: {
+        siteTitle: siteTitleZh || siteTitleEn,
+        siteTitleZh,
+        siteTitleEn,
+        siteKeywords: siteKeywordsZh || siteKeywordsEn || null,
+        siteKeywordsZh: siteKeywordsZh || null,
+        siteKeywordsEn: siteKeywordsEn || null,
+        tagline: taglineZh || taglineEn || null,
+        taglineZh: taglineZh || null,
+        taglineEn: taglineEn || null,
+        logoImageKey: logo,
+        faviconImageKey: favicon,
+        updatedAt: nowIso()
+      }
+    })
 
   const uploaded = uploadedLogo && uploadedFavicon ? 'both' : uploadedLogo ? 'logo' : uploadedFavicon ? 'favicon' : ''
   return redirect(`/admin/settings?success=saved${uploaded ? `&uploaded=${uploaded}` : ''}`)
@@ -802,16 +928,28 @@ export async function adminEditCategoryPage(env: Bindings, req: Request, id: str
   if (!user) return redirect('/admin/login')
   const url = new URL(req.url)
   const isNew = !id
+  const db = getDb(env.DB)
   const row = isNew
     ? null
-    : await dbGet<CategoryRow>(
-        env.DB,
-        'SELECT id, parent_id, name, slug, sort_order FROM categories WHERE id=?',
-        [id]
-      )
+    : await db
+        .select({
+          id: schema.categories.id,
+          parent_id: schema.categories.parentId,
+          name: schema.categories.name,
+          slug: schema.categories.slug,
+          sort_order: schema.categories.sortOrder
+        })
+        .from(schema.categories)
+        .where(eq(schema.categories.id, id!))
+        .limit(1)
+        .get() as CategoryRow | undefined
   if (!isNew && !row) return redirect('/admin/categories')
 
-  const parents = await dbAll<{ id: string; name: string; slug: string }>(env.DB, 'SELECT id, name, slug FROM categories ORDER BY name ASC LIMIT 1000')
+  const parents = await db
+    .select({ id: schema.categories.id, name: schema.categories.name, slug: schema.categories.slug })
+    .from(schema.categories)
+    .orderBy(asc(schema.categories.name))
+    .limit(1000)
   const canonical = new URL(isNew ? '/admin/categories/new' : `/admin/categories/${id}`, env.APP_ORIGIN).toString()
   const success = url.searchParams.get('success')
   const error = url.searchParams.get('error')
@@ -866,7 +1004,18 @@ export async function adminSaveCategory(env: Bindings, req: Request, id: string 
   if (!isValidSlug(slug)) return redirect(entityEditLocation('categories', id, entityId, 'Invalid slug'))
   if (!Number.isFinite(sortOrder)) return redirect(entityEditLocation('categories', id, entityId, 'Invalid sort_order'))
 
-  const existing = await env.DB.prepare('SELECT id, parent_id, name, slug, sort_order FROM categories WHERE id=?').bind(entityId).first<CategoryRow>()
+  const existing = await getDb(env.DB)
+    .select({
+      id: schema.categories.id,
+      parent_id: schema.categories.parentId,
+      name: schema.categories.name,
+      slug: schema.categories.slug,
+      sort_order: schema.categories.sortOrder
+    })
+    .from(schema.categories)
+    .where(eq(schema.categories.id, entityId))
+    .limit(1)
+    .get() as CategoryRow | undefined
   if (existing) await writeRevision(env, user.userId, 'categories', entityId, existing)
 
   try {
@@ -874,25 +1023,48 @@ export async function adminSaveCategory(env: Bindings, req: Request, id: string 
   } catch (e) {
     return redirect(entityEditLocation('categories', id, entityId, (e as Error).message))
   }
-  await env.DB.prepare(
-    'INSERT INTO categories (id, parent_id, name, slug, sort_order, created_at, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET parent_id=excluded.parent_id,name=excluded.name,slug=excluded.slug,sort_order=excluded.sort_order,updated_at=excluded.updated_at'
-  )
-    .bind(entityId, parentId, name, slug, sortOrder, now, now)
-    .run()
+  await getDb(env.DB)
+    .insert(schema.categories)
+    .values({
+      id: entityId,
+      parentId,
+      name,
+      slug,
+      sortOrder,
+      createdAt: now,
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: schema.categories.id,
+      set: {
+        parentId,
+        name,
+        slug,
+        sortOrder,
+        updatedAt: now
+      }
+    })
   await writeAudit(env, user.userId, id ? 'update' : 'create', 'categories', entityId, { slug })
   return redirect(`/admin/categories/${entityId}?success=saved`)
 }
 
 async function writeRevision(env: Bindings, actorUserId: string, entityType: string, entityId: string, snapshot: unknown): Promise<void> {
-  const row = await env.DB.prepare('SELECT MAX(version) as v FROM revisions WHERE entity_type=? AND entity_id=?')
-    .bind(entityType, entityId)
-    .first<{ v: number | null }>()
+  const db = getDb(env.DB)
+  const row = await db
+    .select({ v: sql<number | null>`max(${schema.revisions.version})` })
+    .from(schema.revisions)
+    .where(and(eq(schema.revisions.entityType, entityType), eq(schema.revisions.entityId, entityId)))
+    .get()
   const nextVersion = (row?.v ?? 0) + 1
-  await env.DB.prepare(
-    'INSERT INTO revisions (id, entity_type, entity_id, version, snapshot_json, actor_user_id, created_at) VALUES (?,?,?,?,?,?,?)'
-  )
-    .bind(ulid(), entityType, entityId, nextVersion, JSON.stringify(snapshot), actorUserId, nowIso())
-    .run()
+  await db.insert(schema.revisions).values({
+    id: ulid(),
+    entityType,
+    entityId,
+    version: nextVersion,
+    snapshotJson: JSON.stringify(snapshot),
+    actorUserId,
+    createdAt: nowIso()
+  })
 }
 
 export async function adminEditCountryPage(env: Bindings, req: Request, id: string | null): Promise<Response> {
@@ -901,13 +1073,10 @@ export async function adminEditCountryPage(env: Bindings, req: Request, id: stri
   const locale = resolveLocale(req)
   const url = new URL(req.url)
   const isNew = !id
+  const db = getDb(env.DB)
   const row = isNew
     ? null
-    : await dbGet<CountryRow>(
-        env.DB,
-        'SELECT id, iso2, name, name_zh, name_en, slug, hero_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at FROM countries WHERE id=?',
-        [id]
-      )
+    : await db.select(countryRowSelection).from(schema.countries).where(eq(schema.countries.id, id!)).limit(1).get() as CountryRow | undefined
   if (!isNew && !row) return redirect('/admin/countries')
 
   const canonical = new URL(isNew ? '/admin/countries/new' : `/admin/countries/${id}`, env.APP_ORIGIN).toString()
@@ -1042,6 +1211,7 @@ export async function adminSaveCountry(env: Bindings, req: Request, id: string |
   const contentHtmlZh = sanitizeHtmlBasic(String(form.get('content_html_zh') ?? '').trim()) || null
   const contentHtmlEn = sanitizeHtmlBasic(String(form.get('content_html_en') ?? '').trim()) || null
   const faqJson = String(form.get('faq_json') ?? '').trim() || '[]'
+  const db = getDb(env.DB)
   const name = nameZh || nameEn
   const seoTitle = seoTitleZh || seoTitleEn
   const seoDesc = seoDescZh || seoDescEn
@@ -1049,9 +1219,7 @@ export async function adminSaveCountry(env: Bindings, req: Request, id: string |
   if (!iso2 || !nameZh || !nameEn || !slug) return redirect(entityEditLocation('countries', id, entityId, 'Missing fields'))
   if (!isValidSlug(slug)) return redirect(entityEditLocation('countries', id, entityId, 'Invalid slug'))
 
-  const existing = await env.DB.prepare('SELECT id, iso2, name, name_zh, name_en, slug, hero_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at FROM countries WHERE id=?')
-    .bind(entityId)
-    .first<CountryRow>()
+  const existing = await db.select(countryRowSelection).from(schema.countries).where(eq(schema.countries.id, entityId)).limit(1).get() as CountryRow | undefined
   if (existing) await writeRevision(env, user.userId, 'countries', entityId, existing)
 
   let hero = currentHero ?? existing?.hero_image_key ?? null
@@ -1077,11 +1245,57 @@ export async function adminSaveCountry(env: Bindings, req: Request, id: string |
   }
 
   const publishedAt = toPublishedAt(status, now)
-  await env.DB.prepare(
-    'INSERT INTO countries (id, iso2, name, name_zh, name_en, slug, hero_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET iso2=excluded.iso2,name=excluded.name,name_zh=excluded.name_zh,name_en=excluded.name_en,slug=excluded.slug,hero_image_key=excluded.hero_image_key,seo_title=excluded.seo_title,seo_title_zh=excluded.seo_title_zh,seo_title_en=excluded.seo_title_en,seo_description=excluded.seo_description,seo_description_zh=excluded.seo_description_zh,seo_description_en=excluded.seo_description_en,content_html=excluded.content_html,content_html_zh=excluded.content_html_zh,content_html_en=excluded.content_html_en,faq_json=excluded.faq_json,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,countries.published_at),updated_at=excluded.updated_at'
-  )
-    .bind(entityId, iso2, name, nameZh, nameEn, slug, hero, seoTitle, seoTitleZh, seoTitleEn, seoDesc, seoDescZh, seoDescEn, contentHtml, contentHtmlZh, contentHtmlEn, faqJson, status, publishAt, publishedAt, now, now)
-    .run()
+  await db
+    .insert(schema.countries)
+    .values({
+      id: entityId,
+      iso2,
+      name,
+      nameZh,
+      nameEn,
+      slug,
+      heroImageKey: hero,
+      seoTitle,
+      seoTitleZh,
+      seoTitleEn,
+      seoDescription: seoDesc,
+      seoDescriptionZh: seoDescZh,
+      seoDescriptionEn: seoDescEn,
+      contentHtml,
+      contentHtmlZh,
+      contentHtmlEn,
+      faqJson,
+      status,
+      publishAt,
+      publishedAt,
+      createdAt: now,
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: schema.countries.id,
+      set: {
+        iso2,
+        name,
+        nameZh,
+        nameEn,
+        slug,
+        heroImageKey: hero,
+        seoTitle,
+        seoTitleZh,
+        seoTitleEn,
+        seoDescription: seoDesc,
+        seoDescriptionZh: seoDescZh,
+        seoDescriptionEn: seoDescEn,
+        contentHtml,
+        contentHtmlZh,
+        contentHtmlEn,
+        faqJson,
+        status,
+        publishAt,
+        publishedAt: publishedAt ?? sql`${schema.countries.publishedAt}`,
+        updatedAt: now
+      }
+    })
 
   await writeAudit(env, user.userId, id ? 'update' : 'create', 'countries', entityId, { slug, status })
   if (status === 'published') await writeAudit(env, user.userId, 'publish', 'countries', entityId, { published_at: now })
@@ -1095,13 +1309,10 @@ export async function adminEditOperatorPage(env: Bindings, req: Request, id: str
   const locale = resolveLocale(req)
   const url = new URL(req.url)
   const isNew = !id
+  const db = getDb(env.DB)
   const row = isNew
     ? null
-    : await dbGet<OperatorRow>(
-        env.DB,
-        'SELECT id, name, name_zh, name_en, slug, website_url, logo_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at FROM operators WHERE id=?',
-        [id]
-      )
+    : await db.select(operatorRowSelection).from(schema.operators).where(eq(schema.operators.id, id!)).limit(1).get() as OperatorRow | undefined
   if (!isNew && !row) return redirect('/admin/operators')
 
   const canonical = new URL(isNew ? '/admin/operators/new' : `/admin/operators/${id}`, env.APP_ORIGIN).toString()
@@ -1237,6 +1448,7 @@ export async function adminSaveOperator(env: Bindings, req: Request, id: string 
   const contentHtmlZh = sanitizeHtmlBasic(String(form.get('content_html_zh') ?? '').trim()) || null
   const contentHtmlEn = sanitizeHtmlBasic(String(form.get('content_html_en') ?? '').trim()) || null
   const faqJson = String(form.get('faq_json') ?? '').trim() || '[]'
+  const db = getDb(env.DB)
   const name = nameZh || nameEn
   const seoTitle = seoTitleZh || seoTitleEn
   const seoDesc = seoDescZh || seoDescEn
@@ -1245,11 +1457,7 @@ export async function adminSaveOperator(env: Bindings, req: Request, id: string 
   if (!isValidSlug(slug)) return redirect(operatorEditLocation(id, entityId, 'Invalid slug'))
   if (!isValidUrl(websiteUrl)) return redirect(operatorEditLocation(id, entityId, 'Invalid website_url'))
 
-  const existing = await env.DB.prepare(
-    'SELECT id, name, name_zh, name_en, slug, website_url, logo_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at FROM operators WHERE id=?'
-  )
-    .bind(entityId)
-    .first<OperatorRow>()
+  const existing = await db.select(operatorRowSelection).from(schema.operators).where(eq(schema.operators.id, entityId)).limit(1).get() as OperatorRow | undefined
   if (existing) await writeRevision(env, user.userId, 'operators', entityId, existing)
 
   let logo = currentLogo ?? existing?.logo_image_key ?? null
@@ -1273,11 +1481,57 @@ export async function adminSaveOperator(env: Bindings, req: Request, id: string 
   } catch (e) {
     return redirect(operatorEditLocation(id, entityId, (e as Error).message))
   }
-  await env.DB.prepare(
-    'INSERT INTO operators (id, name, name_zh, name_en, slug, website_url, logo_image_key, seo_title, seo_title_zh, seo_title_en, seo_description, seo_description_zh, seo_description_en, content_html, content_html_zh, content_html_en, faq_json, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,name_zh=excluded.name_zh,name_en=excluded.name_en,slug=excluded.slug,website_url=excluded.website_url,logo_image_key=excluded.logo_image_key,seo_title=excluded.seo_title,seo_title_zh=excluded.seo_title_zh,seo_title_en=excluded.seo_title_en,seo_description=excluded.seo_description,seo_description_zh=excluded.seo_description_zh,seo_description_en=excluded.seo_description_en,content_html=excluded.content_html,content_html_zh=excluded.content_html_zh,content_html_en=excluded.content_html_en,faq_json=excluded.faq_json,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,operators.published_at),updated_at=excluded.updated_at'
-  )
-    .bind(entityId, name, nameZh, nameEn, slug, websiteUrl, logo, seoTitle, seoTitleZh, seoTitleEn, seoDesc, seoDescZh, seoDescEn, contentHtml, contentHtmlZh, contentHtmlEn, faqJson, status, publishAt, publishedAt, now, now)
-    .run()
+  await db
+    .insert(schema.operators)
+    .values({
+      id: entityId,
+      name,
+      nameZh,
+      nameEn,
+      slug,
+      websiteUrl,
+      logoImageKey: logo,
+      seoTitle,
+      seoTitleZh,
+      seoTitleEn,
+      seoDescription: seoDesc,
+      seoDescriptionZh: seoDescZh,
+      seoDescriptionEn: seoDescEn,
+      contentHtml,
+      contentHtmlZh,
+      contentHtmlEn,
+      faqJson,
+      status,
+      publishAt,
+      publishedAt,
+      createdAt: now,
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: schema.operators.id,
+      set: {
+        name,
+        nameZh,
+        nameEn,
+        slug,
+        websiteUrl,
+        logoImageKey: logo,
+        seoTitle,
+        seoTitleZh,
+        seoTitleEn,
+        seoDescription: seoDesc,
+        seoDescriptionZh: seoDescZh,
+        seoDescriptionEn: seoDescEn,
+        contentHtml,
+        contentHtmlZh,
+        contentHtmlEn,
+        faqJson,
+        status,
+        publishAt,
+        publishedAt: publishedAt ?? sql`${schema.operators.publishedAt}`,
+        updatedAt: now
+      }
+    })
 
   await writeAudit(env, user.userId, id ? 'update' : 'create', 'operators', entityId, { slug, status })
   if (status === 'published') await writeAudit(env, user.userId, 'publish', 'operators', entityId, { published_at: now })
@@ -1291,19 +1545,17 @@ export async function adminEditProductPage(env: Bindings, req: Request, id: stri
   const locale = resolveLocale(req)
   const url = new URL(req.url)
   const isNew = !id
+  const db = getDb(env.DB)
   const row = isNew
     ? null
-    : await dbGet<ProductRow>(
-        env.DB,
-        'SELECT id, operator_id, name, name_zh, name_en, slug, country_iso2, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, activation_guide_html, activation_guide_html_zh, activation_guide_html_en, status, publish_at FROM products WHERE id=?',
-        [id]
-      )
+    : await db.select(productRowSelection).from(schema.products).where(eq(schema.products.id, id!)).limit(1).get() as ProductRow | undefined
   if (!isNew && !row) return redirect('/admin/products')
 
-  const operators = await dbAll<{ id: string; name: string; slug: string }>(
-    env.DB,
-    "SELECT id, name, slug FROM operators ORDER BY name ASC LIMIT 500"
-  )
+  const operators = await db
+    .select({ id: schema.operators.id, name: schema.operators.name, slug: schema.operators.slug })
+    .from(schema.operators)
+    .orderBy(asc(schema.operators.name))
+    .limit(500)
   const operatorId = row?.operator_id ?? (operators[0]?.id ?? '')
 
   const canonical = new URL(isNew ? '/admin/products/new' : `/admin/products/${id}`, env.APP_ORIGIN).toString()
@@ -1424,6 +1676,7 @@ export async function adminSaveProduct(env: Bindings, req: Request, id: string |
   const purchaseUrl = String(form.get('purchase_url') ?? '').trim()
   const activationZh = sanitizeHtmlBasic(String(form.get('activation_guide_html_zh') ?? '').trim()) || null
   const activationEn = sanitizeHtmlBasic(String(form.get('activation_guide_html_en') ?? '').trim()) || null
+  const db = getDb(env.DB)
   const name = nameZh || nameEn
   const activation = activationZh || activationEn
   if (!operatorId || !nameZh || !nameEn || !slug || !countryIso2 || !purchaseUrl) return redirect(entityEditLocation('products', id, entityId, 'Missing fields'))
@@ -1436,26 +1689,25 @@ export async function adminSaveProduct(env: Bindings, req: Request, id: string |
     if (status === 'scheduled' && !parsedPublishAt) return redirect(entityEditLocation('products', id, entityId, 'publish_at required for scheduled'))
     await ensureUniqueSlug(env, 'products', slug, entityId)
     if (status === 'published' || status === 'scheduled') {
-      await ensureExists(env, 'SELECT id as ok FROM operators WHERE id=? LIMIT 1', [operatorId], 'Invalid operator_id')
-      await ensureExists(env, 'SELECT id as ok FROM countries WHERE iso2=? LIMIT 1', [countryIso2], 'Invalid country_iso2')
+      const [operatorExists, countryExists] = await Promise.all([
+        db.select({ id: schema.operators.id }).from(schema.operators).where(eq(schema.operators.id, operatorId)).limit(1).get(),
+        db.select({ iso2: schema.countries.iso2 }).from(schema.countries).where(eq(schema.countries.iso2, countryIso2)).limit(1).get()
+      ])
+      if (!operatorExists) throw new Error('Invalid operator_id')
+      if (!countryExists) throw new Error('Invalid country_iso2')
     }
   } catch (e) {
     return redirect(entityEditLocation('products', id, entityId, (e as Error).message))
   }
 
-  const existing = await env.DB.prepare(
-    'SELECT id, operator_id, name, name_zh, name_en, slug, country_iso2, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, activation_guide_html, activation_guide_html_zh, activation_guide_html_en, status, publish_at FROM products WHERE id=?'
-  )
-    .bind(entityId)
-    .first<ProductRow>()
+  const existing = await db.select(productRowSelection).from(schema.products).where(eq(schema.products.id, entityId)).limit(1).get() as ProductRow | undefined
   if (existing) await writeRevision(env, user.userId, 'products', entityId, existing)
 
   const publishedAt = toPublishedAt(status, now)
-  await env.DB.prepare(
-    'INSERT INTO products (id, operator_id, name, name_zh, name_en, slug, country_iso2, days, data_gb, is_unlimited, supports_hotspot, network_type, price_amount, price_currency, purchase_url, activation_guide_html, activation_guide_html_zh, activation_guide_html_en, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET operator_id=excluded.operator_id,name=excluded.name,name_zh=excluded.name_zh,name_en=excluded.name_en,slug=excluded.slug,country_iso2=excluded.country_iso2,days=excluded.days,data_gb=excluded.data_gb,is_unlimited=excluded.is_unlimited,supports_hotspot=excluded.supports_hotspot,network_type=excluded.network_type,price_amount=excluded.price_amount,price_currency=excluded.price_currency,purchase_url=excluded.purchase_url,activation_guide_html=excluded.activation_guide_html,activation_guide_html_zh=excluded.activation_guide_html_zh,activation_guide_html_en=excluded.activation_guide_html_en,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,products.published_at),updated_at=excluded.updated_at'
-  )
-    .bind(
-      entityId,
+  await db
+    .insert(schema.products)
+    .values({
+      id: entityId,
       operatorId,
       name,
       nameZh,
@@ -1470,16 +1722,41 @@ export async function adminSaveProduct(env: Bindings, req: Request, id: string |
       priceAmount,
       priceCurrency,
       purchaseUrl,
-      activation,
-      activationZh,
-      activationEn,
+      activationGuideHtml: activation,
+      activationGuideHtmlZh: activationZh,
+      activationGuideHtmlEn: activationEn,
       status,
       publishAt,
       publishedAt,
-      now,
-      now
-    )
-    .run()
+      createdAt: now,
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: schema.products.id,
+      set: {
+        operatorId,
+        name,
+        nameZh,
+        nameEn,
+        slug,
+        countryIso2,
+        days,
+        dataGb,
+        isUnlimited,
+        supportsHotspot,
+        networkType,
+        priceAmount,
+        priceCurrency,
+        purchaseUrl,
+        activationGuideHtml: activation,
+        activationGuideHtmlZh: activationZh,
+        activationGuideHtmlEn: activationEn,
+        status,
+        publishAt,
+        publishedAt: publishedAt ?? sql`${schema.products.publishedAt}`,
+        updatedAt: now
+      }
+    })
 
   await writeAudit(env, user.userId, id ? 'update' : 'create', 'products', entityId, { slug, status })
   if (status === 'published') await writeAudit(env, user.userId, 'publish', 'products', entityId, { published_at: now })
@@ -1493,22 +1770,24 @@ export async function adminEditPostPage(env: Bindings, req: Request, id: string 
   const locale = resolveLocale(req)
   const url = new URL(req.url)
   const isNew = !id
-  const categories = await dbAll<{ id: string; name: string; slug: string }>(env.DB, 'SELECT id, name, slug FROM categories ORDER BY sort_order ASC, name ASC LIMIT 1000')
+  const db = getDb(env.DB)
+  const categories = await db
+    .select({ id: schema.categories.id, name: schema.categories.name, slug: schema.categories.slug })
+    .from(schema.categories)
+    .orderBy(asc(schema.categories.sortOrder), asc(schema.categories.name))
+    .limit(1000)
   const row = isNew
     ? null
-    : await dbGet<PostRow>(
-        env.DB,
-        'SELECT id, category_id, post_type, ref_slug, title, slug, excerpt, content_html, cover_image_key, locale, status, publish_at FROM posts WHERE id=?',
-        [id]
-      )
+    : await db.select(postRowSelection).from(schema.posts).where(eq(schema.posts.id, id!)).limit(1).get() as PostRow | undefined
   if (!isNew && !row) return redirect('/admin/posts')
   const pairKey = row ? row.ref_slug ?? row.slug : ''
   const siblings = row
-    ? await dbAll<PostRow>(
-        env.DB,
-        'SELECT id, category_id, post_type, ref_slug, title, slug, excerpt, content_html, cover_image_key, locale, status, publish_at FROM posts WHERE id=? OR ref_slug=? OR slug=? ORDER BY updated_at DESC LIMIT 4',
-        [row.id, pairKey, pairKey]
-      )
+    ? await db
+        .select(postRowSelection)
+        .from(schema.posts)
+        .where(or(eq(schema.posts.id, row.id), eq(schema.posts.refSlug, pairKey), eq(schema.posts.slug, pairKey)))
+        .orderBy(desc(schema.posts.updatedAt))
+        .limit(4) as PostRow[]
     : []
   const canonical = new URL(isNew ? '/admin/posts/new' : `/admin/posts/${id}`, env.APP_ORIGIN).toString()
   const success = url.searchParams.get('success')
@@ -1658,21 +1937,21 @@ export async function adminSavePost(env: Bindings, req: Request, id: string | nu
   const excerptEn = String(form.get('excerpt_en') ?? '').trim() || null
   const contentEn = sanitizeHtmlBasic(String(form.get('content_html_en') ?? '').trim())
   const fallbackEntityId = id ?? ulid()
+  const db = getDb(env.DB)
   if (!titleZh || !sharedSlug || !contentZh || !titleEn || !contentEn) return redirect(entityEditLocation('posts', id, fallbackEntityId, 'Missing fields'))
   if (!isValidSlug(sharedSlug)) return redirect(entityEditLocation('posts', id, fallbackEntityId, 'Invalid slug'))
 
-  const existing = id ? await env.DB.prepare(
-    'SELECT id, category_id, post_type, ref_slug, title, slug, excerpt, content_html, cover_image_key, locale, status, publish_at FROM posts WHERE id=?'
-  )
-    .bind(id)
-    .first<PostRow>() : null
+  const existing = id
+    ? await db.select(postRowSelection).from(schema.posts).where(eq(schema.posts.id, id!)).limit(1).get() as PostRow | undefined
+    : null
   const pairKey = pairRefSlug || existing?.ref_slug || existing?.slug || sharedSlug
   const groupRows = existing
-    ? await dbAll<PostRow>(
-        env.DB,
-        'SELECT id, category_id, post_type, ref_slug, title, slug, excerpt, content_html, cover_image_key, locale, status, publish_at FROM posts WHERE id=? OR ref_slug=? OR slug=? ORDER BY updated_at DESC LIMIT 4',
-        [existing.id, pairKey, pairKey]
-      )
+    ? await db
+        .select(postRowSelection)
+        .from(schema.posts)
+        .where(or(eq(schema.posts.id, existing.id), eq(schema.posts.refSlug, pairKey), eq(schema.posts.slug, pairKey)))
+        .orderBy(desc(schema.posts.updatedAt))
+        .limit(4) as PostRow[]
     : []
   const existingZh = groupRows.find((item) => item.locale.toLowerCase().startsWith('zh')) ?? (existing?.locale.toLowerCase().startsWith('zh') ? existing : null)
   const existingEn = groupRows.find((item) => item.locale.toLowerCase().startsWith('en')) ?? (existing?.locale.toLowerCase().startsWith('en') ? existing : null)
@@ -1698,21 +1977,57 @@ export async function adminSavePost(env: Bindings, req: Request, id: string | nu
     if (status === 'scheduled' && !parsedPublishAt) return redirect(entityEditLocation('posts', id, fallbackEntityId, 'publish_at required for scheduled'))
     await ensureUniquePostSlug(env, sharedSlug, 'zh', zhId)
     await ensureUniquePostSlug(env, sharedSlug, 'en', enId)
-    if (categoryId) await ensureExists(env, 'SELECT id as ok FROM categories WHERE id=? LIMIT 1', [categoryId], 'Invalid category_id')
+    if (categoryId) {
+      const categoryExists = await db.select({ id: schema.categories.id }).from(schema.categories).where(eq(schema.categories.id, categoryId)).limit(1).get()
+      if (!categoryExists) throw new Error('Invalid category_id')
+    }
     if ((status === 'published' || status === 'scheduled') && cover) await ensureR2KeyExists(env, cover)
   } catch (e) {
     return redirect(entityEditLocation('posts', id, fallbackEntityId, (e as Error).message))
   }
 
   const publishedAt = toPublishedAt(status, now)
-  const upsertSql =
-    'INSERT INTO posts (id, category_id, post_type, ref_slug, title, slug, excerpt, content_html, cover_image_key, locale, status, publish_at, published_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET category_id=excluded.category_id,post_type=excluded.post_type,ref_slug=excluded.ref_slug,title=excluded.title,slug=excluded.slug,excerpt=excluded.excerpt,content_html=excluded.content_html,cover_image_key=excluded.cover_image_key,locale=excluded.locale,status=excluded.status,publish_at=excluded.publish_at,published_at=COALESCE(excluded.published_at,posts.published_at),updated_at=excluded.updated_at'
-  await env.DB.prepare(upsertSql)
-    .bind(zhId, categoryId, postType, pairKey, titleZh, sharedSlug, excerptZh, contentZh, cover, 'zh', status, publishAtRaw, publishedAt, now, now)
-    .run()
-  await env.DB.prepare(upsertSql)
-    .bind(enId, categoryId, postType, pairKey, titleEn, sharedSlug, excerptEn, contentEn, cover, 'en', status, publishAtRaw, publishedAt, now, now)
-    .run()
+  const upsertPost = async (postId: string, title: string, excerpt: string | null, contentHtml: string, localeCode: string) => {
+    await db
+      .insert(schema.posts)
+      .values({
+        id: postId,
+        categoryId,
+        postType,
+        refSlug: pairKey,
+        title,
+        slug: sharedSlug,
+        excerpt,
+        contentHtml,
+        coverImageKey: cover,
+        locale: localeCode,
+        status,
+        publishAt: publishAtRaw,
+        publishedAt,
+        createdAt: now,
+        updatedAt: now
+      })
+      .onConflictDoUpdate({
+        target: schema.posts.id,
+        set: {
+          categoryId,
+          postType,
+          refSlug: pairKey,
+          title,
+          slug: sharedSlug,
+          excerpt,
+          contentHtml,
+          coverImageKey: cover,
+          locale: localeCode,
+          status,
+          publishAt: publishAtRaw,
+          publishedAt: publishedAt ?? sql`${schema.posts.publishedAt}`,
+          updatedAt: now
+        }
+      })
+  }
+  await upsertPost(zhId, titleZh, excerptZh, contentZh, 'zh')
+  await upsertPost(enId, titleEn, excerptEn, contentEn, 'en')
 
   await writeAudit(env, user.userId, id ? 'update' : 'create', 'posts', zhId, { slug: sharedSlug, status, locale: 'zh', pair_ref_slug: pairKey })
   await writeAudit(env, user.userId, id ? 'update' : 'create', 'posts', enId, { slug: sharedSlug, status, locale: 'en', pair_ref_slug: pairKey })

@@ -16,6 +16,7 @@
   "dependencies": {
     "@cloudflare/workers-types": "^4.20260508.0",
     "cookie": "^0.6.0",
+    "drizzle-orm": "^0.45.2",
     "zod": "^3.25.0"
   },
   "devDependencies": {
@@ -29,4 +30,3 @@
     "wrangler": "^3.106.0"
   }
 }
-

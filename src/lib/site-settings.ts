@@ -1,4 +1,7 @@
 import type { Bindings } from '../env'
+import { eq } from 'drizzle-orm'
+import * as schema from '../db/schema'
+import { getDb } from './db'
 import { mediaUrl } from './media'
 import type { SiteLocale } from './i18n'
 
@@ -28,11 +31,25 @@ export type SiteSettings = {
 }
 
 export async function getSiteSettings(env: Bindings): Promise<SiteSettings> {
-  const row = await env.DB.prepare(
-    'SELECT site_title, site_title_zh, site_title_en, site_keywords, site_keywords_zh, site_keywords_en, tagline, tagline_zh, tagline_en, logo_image_key, favicon_image_key FROM site_settings WHERE id=? LIMIT 1'
-  )
-    .bind('default')
-    .first<SiteSettingsRow>()
+  const db = getDb(env.DB)
+  const row = await db
+    .select({
+      site_title: schema.siteSettings.siteTitle,
+      site_title_zh: schema.siteSettings.siteTitleZh,
+      site_title_en: schema.siteSettings.siteTitleEn,
+      site_keywords: schema.siteSettings.siteKeywords,
+      site_keywords_zh: schema.siteSettings.siteKeywordsZh,
+      site_keywords_en: schema.siteSettings.siteKeywordsEn,
+      tagline: schema.siteSettings.tagline,
+      tagline_zh: schema.siteSettings.taglineZh,
+      tagline_en: schema.siteSettings.taglineEn,
+      logo_image_key: schema.siteSettings.logoImageKey,
+      favicon_image_key: schema.siteSettings.faviconImageKey
+    })
+    .from(schema.siteSettings)
+    .where(eq(schema.siteSettings.id, 'default'))
+    .limit(1)
+    .get() as SiteSettingsRow | undefined
 
   return {
     siteTitleZh: row?.site_title_zh?.trim() || row?.site_title?.trim() || env.SITE_NAME,

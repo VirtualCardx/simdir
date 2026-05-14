@@ -1,5 +1,7 @@
 import type { Bindings } from '../env'
-import { dbAll, dbExec, dbGet } from '../lib/db'
+import { desc, eq, sql, type SQL } from 'drizzle-orm'
+import * as schema from '../db/schema'
+import { getDb } from '../lib/db'
 import { html, redirect, badRequest, unauthorized, json } from '../lib/http'
 import { criticalCss, layout } from '../lib/templates'
 import { autoDescription, escapeHtml } from '../lib/seo'
@@ -42,6 +44,186 @@ function adminHeader(env: Bindings, req: Request, locale: SiteLocale, actions: s
 }
 
 type CountRow = { total: number; published?: number; draft?: number; scheduled?: number; archived?: number }
+type PostLocaleCoverageRow = { bilingual: number; zh_only: number; en_only: number }
+
+type StatusTable = typeof schema.countries | typeof schema.operators | typeof schema.products
+
+function countByStatus(table: StatusTable): SQL {
+  return sql`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN ${table.status}='published' THEN 1 ELSE 0 END) as published,
+      SUM(CASE WHEN ${table.status}='draft' THEN 1 ELSE 0 END) as draft,
+      SUM(CASE WHEN ${table.status}='scheduled' THEN 1 ELSE 0 END) as scheduled,
+      SUM(CASE WHEN ${table.status}='archived' THEN 1 ELSE 0 END) as archived
+    FROM ${table}
+  `
+}
+
+function groupedPostKeyExpr(): SQL<string> {
+  return sql<string>`coalesce(nullif(${schema.posts.refSlug}, ''), ${schema.posts.slug})`
+}
+
+async function loadGroupedPostCounts(db: ReturnType<typeof getDb>): Promise<CountRow | undefined> {
+  const articleKey = groupedPostKeyExpr()
+  const groupedPosts = db
+    .select({
+      article_key: articleKey,
+      status: sql<string>`
+        case
+          when sum(case when ${schema.posts.status} = 'published' then 1 else 0 end) > 0 then 'published'
+          when sum(case when ${schema.posts.status} = 'scheduled' then 1 else 0 end) > 0 then 'scheduled'
+          when sum(case when ${schema.posts.status} = 'draft' then 1 else 0 end) > 0 then 'draft'
+          else 'archived'
+        end
+      `.as('status')
+    })
+    .from(schema.posts)
+    .groupBy(articleKey)
+    .as('grouped_posts')
+  return db
+    .select({
+      total: sql<number>`count(*)`,
+      published: sql<number>`sum(case when ${groupedPosts.status} = 'published' then 1 else 0 end)`,
+      draft: sql<number>`sum(case when ${groupedPosts.status} = 'draft' then 1 else 0 end)`,
+      scheduled: sql<number>`sum(case when ${groupedPosts.status} = 'scheduled' then 1 else 0 end)`,
+      archived: sql<number>`sum(case when ${groupedPosts.status} = 'archived' then 1 else 0 end)`
+    })
+    .from(groupedPosts)
+    .get()
+}
+
+async function loadPostLocaleCoverage(db: ReturnType<typeof getDb>): Promise<PostLocaleCoverageRow | undefined> {
+  const articleKey = groupedPostKeyExpr()
+  const localeGroups = db
+    .select({
+      article_key: articleKey,
+      has_zh: sql<number>`max(case when lower(${schema.posts.locale}) like 'zh%' then 1 else 0 end)`.as('has_zh'),
+      has_en: sql<number>`max(case when lower(${schema.posts.locale}) like 'en%' then 1 else 0 end)`.as('has_en')
+    })
+    .from(schema.posts)
+    .groupBy(articleKey)
+    .as('locale_groups')
+  return db
+    .select({
+      bilingual: sql<number>`sum(case when ${localeGroups.has_zh} = 1 and ${localeGroups.has_en} = 1 then 1 else 0 end)`,
+      zh_only: sql<number>`sum(case when ${localeGroups.has_zh} = 1 and ${localeGroups.has_en} = 0 then 1 else 0 end)`,
+      en_only: sql<number>`sum(case when ${localeGroups.has_zh} = 0 and ${localeGroups.has_en} = 1 then 1 else 0 end)`
+    })
+    .from(localeGroups)
+    .get()
+}
+
+async function loadListRows(
+  db: ReturnType<typeof getDb>,
+  entity: 'categories' | 'countries' | 'operators' | 'products' | 'posts',
+  lang?: string
+): Promise<Record<string, unknown>[]> {
+  if (entity === 'posts') return loadPostListRows(db, lang)
+  if (entity === 'categories') {
+    return db
+      .select({
+        id: schema.categories.id,
+        slug: schema.categories.slug,
+        name: schema.categories.name,
+        status: sql<string>`''`,
+        updated_at: schema.categories.updatedAt
+      })
+      .from(schema.categories)
+      .orderBy(desc(schema.categories.updatedAt))
+      .limit(500) as Promise<Record<string, unknown>[]>
+  }
+  if (entity === 'countries') {
+    return db
+      .select({
+        id: schema.countries.id,
+        slug: schema.countries.slug,
+        name: schema.countries.name,
+        status: schema.countries.status,
+        updated_at: schema.countries.updatedAt
+      })
+      .from(schema.countries)
+      .orderBy(desc(schema.countries.updatedAt))
+      .limit(200) as Promise<Record<string, unknown>[]>
+  }
+  if (entity === 'operators') {
+    return db
+      .select({
+        id: schema.operators.id,
+        slug: schema.operators.slug,
+        name: schema.operators.name,
+        status: schema.operators.status,
+        updated_at: schema.operators.updatedAt
+      })
+      .from(schema.operators)
+      .orderBy(desc(schema.operators.updatedAt))
+      .limit(200) as Promise<Record<string, unknown>[]>
+  }
+  return db
+    .select({
+      id: schema.products.id,
+      slug: schema.products.slug,
+      name: schema.products.name,
+      status: schema.products.status,
+      updated_at: schema.products.updatedAt
+    })
+    .from(schema.products)
+    .orderBy(desc(schema.products.updatedAt))
+    .limit(200) as Promise<Record<string, unknown>[]>
+}
+
+async function loadPostListRows(db: ReturnType<typeof getDb>, lang?: string): Promise<Record<string, unknown>[]> {
+  const articleKey = groupedPostKeyExpr()
+  const pickId = sql<string>`
+    coalesce(
+      min(case when lower(${schema.posts.locale}) like 'zh%' then ${schema.posts.id} end),
+      min(case when lower(${schema.posts.locale}) like 'en%' then ${schema.posts.id} end),
+      min(${schema.posts.id})
+    )
+  `
+  const zhTitle = sql<string | null>`max(case when lower(${schema.posts.locale}) like 'zh%' then ${schema.posts.title} end)`
+  const enTitle = sql<string | null>`max(case when lower(${schema.posts.locale}) like 'en%' then ${schema.posts.title} end)`
+  const hasZh = sql<number>`max(case when lower(${schema.posts.locale}) like 'zh%' then 1 else 0 end)`
+  const hasEn = sql<number>`max(case when lower(${schema.posts.locale}) like 'en%' then 1 else 0 end)`
+  const categoryName = sql<string>`coalesce(max(${schema.categories.name}), '')`
+  const groupedStatus = sql<string>`
+    case
+      when sum(case when ${schema.posts.status} = 'published' then 1 else 0 end) > 0 then 'published'
+      when sum(case when ${schema.posts.status} = 'scheduled' then 1 else 0 end) > 0 then 'scheduled'
+      when sum(case when ${schema.posts.status} = 'draft' then 1 else 0 end) > 0 then 'draft'
+      else 'archived'
+    end
+  `
+  const updatedAt = sql<string>`max(${schema.posts.updatedAt})`
+  const selection = {
+    id: pickId,
+    slug: articleKey,
+    zh_title: zhTitle,
+    en_title: enTitle,
+    has_zh: hasZh,
+    has_en: hasEn,
+    category_name: categoryName,
+    status: groupedStatus,
+    updated_at: updatedAt
+  }
+  if (lang) {
+    return db
+      .select(selection)
+      .from(schema.posts)
+      .leftJoin(schema.categories, eq(schema.categories.id, schema.posts.categoryId))
+      .where(sql`lower(${schema.posts.locale}) = ${lang}`)
+      .groupBy(articleKey)
+      .orderBy(desc(updatedAt))
+      .limit(200) as Promise<Record<string, unknown>[]>
+  }
+  return db
+    .select(selection)
+    .from(schema.posts)
+    .leftJoin(schema.categories, eq(schema.categories.id, schema.posts.categoryId))
+    .groupBy(articleKey)
+    .orderBy(desc(updatedAt))
+    .limit(200) as Promise<Record<string, unknown>[]>
+}
 
 function statusLabel(status: string): string {
   const map: Record<string, string> = {
@@ -106,45 +288,17 @@ export async function adminHomePage(env: Bindings, req: Request): Promise<Respon
   const user = await requireAdmin(env, req)
   if (!user) return redirect('/admin/login')
   const canonical = new URL('/admin', env.APP_ORIGIN).toString()
+  const db = getDb(env.DB)
   const [countries, operators, products, posts, categories, postLocaleCoverage] = await Promise.all([
-    env.DB.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published, SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) as draft, SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) as scheduled, SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) as archived FROM countries").first<CountRow>(),
-    env.DB.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published, SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) as draft, SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) as scheduled, SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) as archived FROM operators").first<CountRow>(),
-    env.DB.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published, SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) as draft, SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) as scheduled, SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) as archived FROM products").first<CountRow>(),
-    env.DB.prepare(
-      `SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) as published,
-        SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) as draft,
-        SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) as scheduled,
-        SUM(CASE WHEN status='archived' THEN 1 ELSE 0 END) as archived
-      FROM (
-        SELECT
-          COALESCE(NULLIF(ref_slug, ''), slug) as article_key,
-          CASE
-            WHEN SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) > 0 THEN 'published'
-            WHEN SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) > 0 THEN 'scheduled'
-            WHEN SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) > 0 THEN 'draft'
-            ELSE 'archived'
-          END as status
-        FROM posts
-        GROUP BY COALESCE(NULLIF(ref_slug, ''), slug)
-      ) grouped_posts`
-    ).first<CountRow>(),
-    env.DB.prepare('SELECT COUNT(*) as total FROM categories').first<{ total: number }>(),
-    env.DB.prepare(
-      `SELECT
-        SUM(CASE WHEN has_zh=1 AND has_en=1 THEN 1 ELSE 0 END) as bilingual,
-        SUM(CASE WHEN has_zh=1 AND has_en=0 THEN 1 ELSE 0 END) as zh_only,
-        SUM(CASE WHEN has_zh=0 AND has_en=1 THEN 1 ELSE 0 END) as en_only
-      FROM (
-        SELECT
-          COALESCE(NULLIF(ref_slug, ''), slug) as article_key,
-          MAX(CASE WHEN lower(locale) LIKE 'zh%' THEN 1 ELSE 0 END) as has_zh,
-          MAX(CASE WHEN lower(locale) LIKE 'en%' THEN 1 ELSE 0 END) as has_en
-        FROM posts
-        GROUP BY COALESCE(NULLIF(ref_slug, ''), slug)
-      ) locale_groups`
-    ).first<{ bilingual: number; zh_only: number; en_only: number }>()
+    db.get<CountRow>(countByStatus(schema.countries)),
+    db.get<CountRow>(countByStatus(schema.operators)),
+    db.get<CountRow>(countByStatus(schema.products)),
+    loadGroupedPostCounts(db),
+    db
+      .select({ total: sql<number>`count(*)` })
+      .from(schema.categories)
+      .get(),
+    loadPostLocaleCoverage(db)
   ])
   const body = `
   ${adminHeader(env, req, locale, `<form method="POST" action="/api/admin/auth/logout"><button class="btn" type="submit">${escapeHtml(pick(locale, '退出', 'Sign out'))}</button></form>`)}
@@ -232,7 +386,7 @@ export async function adminListPage(
   const canonical = new URL(`/admin/${entity}`, env.APP_ORIGIN).toString()
   const url = new URL(req.url)
   const lang = (url.searchParams.get('lang') ?? '').trim().toLowerCase()
-  const rows = await dbAll<Record<string, unknown>>(env.DB, listSql(entity, lang), lang && entity === 'posts' ? [lang] : [])
+  const rows = await loadListRows(getDb(env.DB), entity, lang)
   const titleMap: Record<string, string> = {
     categories: '文章分类',
     countries: '国家',
@@ -297,35 +451,6 @@ export async function adminListPage(
   )
 }
 
-function listSql(entity: 'categories' | 'countries' | 'operators' | 'products' | 'posts', lang?: string): string {
-  if (entity === 'posts') {
-    const where = lang ? 'WHERE lower(p.locale)=?' : ''
-    return `SELECT
-      COALESCE(MIN(CASE WHEN lower(p.locale) LIKE 'zh%' THEN p.id END), MIN(CASE WHEN lower(p.locale) LIKE 'en%' THEN p.id END), MIN(p.id)) as id,
-      COALESCE(NULLIF(p.ref_slug, ''), p.slug) as slug,
-      MAX(CASE WHEN lower(p.locale) LIKE 'zh%' THEN p.title END) as zh_title,
-      MAX(CASE WHEN lower(p.locale) LIKE 'en%' THEN p.title END) as en_title,
-      MAX(CASE WHEN lower(p.locale) LIKE 'zh%' THEN 1 ELSE 0 END) as has_zh,
-      MAX(CASE WHEN lower(p.locale) LIKE 'en%' THEN 1 ELSE 0 END) as has_en,
-      COALESCE(MAX(c.name), '') as category_name,
-      CASE
-        WHEN SUM(CASE WHEN p.status='published' THEN 1 ELSE 0 END) > 0 THEN 'published'
-        WHEN SUM(CASE WHEN p.status='scheduled' THEN 1 ELSE 0 END) > 0 THEN 'scheduled'
-        WHEN SUM(CASE WHEN p.status='draft' THEN 1 ELSE 0 END) > 0 THEN 'draft'
-        ELSE 'archived'
-      END as status,
-      MAX(p.updated_at) as updated_at
-    FROM posts p
-    LEFT JOIN categories c ON c.id=p.category_id
-    ${where}
-    GROUP BY COALESCE(NULLIF(p.ref_slug, ''), p.slug)
-    ORDER BY MAX(p.updated_at) DESC
-    LIMIT 200`
-  }
-  if (entity === 'categories') return `SELECT id, slug, name, '' as status, updated_at FROM categories ORDER BY updated_at DESC LIMIT 500`
-  return `SELECT id, slug, name, status, updated_at FROM ${entity} ORDER BY updated_at DESC LIMIT 200`
-}
-
 export async function apiAdminLogin(env: Bindings, req: Request): Promise<Response> {
   const isLocal = new URL(req.url).hostname === 'localhost'
   const secure = !isLocal
@@ -333,7 +458,18 @@ export async function apiAdminLogin(env: Bindings, req: Request): Promise<Respon
   const email = String(form.get('email') ?? '').toLowerCase().trim()
   const password = String(form.get('password') ?? '')
   if (!email || !password) return badRequest('Missing credentials')
-  const user = await env.DB.prepare('SELECT id,email,password_hash,role FROM admin_users WHERE email=?').bind(email).first<AdminUser>()
+  const db = getDb(env.DB)
+  const user = await db
+    .select({
+      id: schema.adminUsers.id,
+      email: schema.adminUsers.email,
+      password_hash: schema.adminUsers.passwordHash,
+      role: schema.adminUsers.role
+    })
+    .from(schema.adminUsers)
+    .where(eq(schema.adminUsers.email, email))
+    .limit(1)
+    .get() as AdminUser | undefined
   if (!user) return unauthorized('Invalid credentials')
   const ok = await verifyPassword(password, user.password_hash)
   if (!ok) return unauthorized('Invalid credentials')
@@ -370,30 +506,47 @@ export async function apiAdminUpsertSimple(env: Bindings, req: Request, entity: 
   const id = typeof data.id === 'string' && data.id ? data.id : ulid()
   const now = nowIso()
   const status = typeof data.status === 'string' ? data.status : 'draft'
+  const db = getDb(env.DB)
   if (entity === 'countries') {
     const iso2 = String(data.iso2 ?? '').toLowerCase()
     const name = String(data.name ?? '')
     const slug = String(data.slug ?? '')
     if (!iso2 || !name || !slug) return badRequest('Missing fields')
-    await dbExec(
-      env.DB,
-      'INSERT INTO countries (id,iso2,name,slug,seo_title,seo_description,content_html,faq_json,status,publish_at,published_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET iso2=excluded.iso2,name=excluded.name,slug=excluded.slug,seo_title=excluded.seo_title,seo_description=excluded.seo_description,content_html=excluded.content_html,faq_json=excluded.faq_json,status=excluded.status,publish_at=excluded.publish_at,updated_at=excluded.updated_at',
-      [
+    const publishAt = typeof data.publish_at === 'string' ? data.publish_at : null
+    const publishedAt = typeof data.published_at === 'string' ? data.published_at : null
+    await db
+      .insert(schema.countries)
+      .values({
         id,
         iso2,
         name,
         slug,
-        String(data.seo_title ?? ''),
-        String(data.seo_description ?? ''),
-        String(data.content_html ?? ''),
-        typeof data.faq_json === 'string' ? data.faq_json : JSON.stringify(data.faq_json ?? null),
+        seoTitle: String(data.seo_title ?? ''),
+        seoDescription: String(data.seo_description ?? ''),
+        contentHtml: String(data.content_html ?? ''),
+        faqJson: typeof data.faq_json === 'string' ? data.faq_json : JSON.stringify(data.faq_json ?? null),
         status,
-        typeof data.publish_at === 'string' ? data.publish_at : null,
-        typeof data.published_at === 'string' ? data.published_at : null,
-        now,
-        now
-      ]
-    )
+        publishAt,
+        publishedAt,
+        createdAt: now,
+        updatedAt: now
+      })
+      .onConflictDoUpdate({
+        target: schema.countries.id,
+        set: {
+          iso2,
+          name,
+          slug,
+          seoTitle: String(data.seo_title ?? ''),
+          seoDescription: String(data.seo_description ?? ''),
+          contentHtml: String(data.content_html ?? ''),
+          faqJson: typeof data.faq_json === 'string' ? data.faq_json : JSON.stringify(data.faq_json ?? null),
+          status,
+          publishAt,
+          publishedAt: publishedAt ?? sql`${schema.countries.publishedAt}`,
+          updatedAt: now
+        }
+      })
   }
   return json({ ok: true, id })
 }

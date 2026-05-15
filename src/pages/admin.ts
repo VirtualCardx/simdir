@@ -306,54 +306,56 @@ export async function adminHomePage(env: Bindings, req: Request): Promise<Respon
         <p>${escapeHtml(pick(locale, '已登录：', 'Signed in as:'))}<strong>${escapeHtml(user.userId)}</strong>${escapeHtml(pick(locale, '。这里展示当前网站已收录条目、发布状态与文章分组后的语言覆盖情况。', '. This dashboard shows indexed items, publishing states, and grouped post language coverage.'))}</p>
       </div>
     </section>
-    <section class="card">
-      <h2>核心收录数据</h2>
-      <div class="card-grid">
-        <article class="card muted-panel"><h3>国家</h3><p>总数 <strong>${countries?.total ?? 0}</strong></p><small>已发布 ${countries?.published ?? 0} / 草稿 ${countries?.draft ?? 0}</small></article>
-        <article class="card muted-panel"><h3>供应商</h3><p>总数 <strong>${operators?.total ?? 0}</strong></p><small>已发布 ${operators?.published ?? 0} / 草稿 ${operators?.draft ?? 0}</small></article>
-        <article class="card muted-panel"><h3>套餐</h3><p>总数 <strong>${products?.total ?? 0}</strong></p><small>已发布 ${products?.published ?? 0} / 草稿 ${products?.draft ?? 0}</small></article>
-        <article class="card muted-panel"><h3>文章</h3><p>总数 <strong>${posts?.total ?? 0}</strong></p><small>已发布 ${posts?.published ?? 0} / 草稿 ${posts?.draft ?? 0}</small></article>
-        <article class="card muted-panel"><h3>文章分类</h3><p>总数 <strong>${categories?.total ?? 0}</strong></p><small>用于文章归类与前台内容导航</small></article>
-      </div>
-    </section>
-    <section class="split-grid">
+    <div class="section-gap">
       <section class="card">
-        <h2>发布状态</h2>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>模块</th><th>已发布</th><th>定时发布</th><th>草稿</th><th>已归档</th></tr></thead>
-            <tbody>
-              <tr><td>国家</td><td>${countries?.published ?? 0}</td><td>${countries?.scheduled ?? 0}</td><td>${countries?.draft ?? 0}</td><td>${countries?.archived ?? 0}</td></tr>
-              <tr><td>供应商</td><td>${operators?.published ?? 0}</td><td>${operators?.scheduled ?? 0}</td><td>${operators?.draft ?? 0}</td><td>${operators?.archived ?? 0}</td></tr>
-              <tr><td>套餐</td><td>${products?.published ?? 0}</td><td>${products?.scheduled ?? 0}</td><td>${products?.draft ?? 0}</td><td>${products?.archived ?? 0}</td></tr>
-              <tr><td>文章</td><td>${posts?.published ?? 0}</td><td>${posts?.scheduled ?? 0}</td><td>${posts?.draft ?? 0}</td><td>${posts?.archived ?? 0}</td></tr>
-            </tbody>
-          </table>
+        <h2>核心收录数据</h2>
+        <div class="card-grid">
+          <article class="card muted-panel"><h3>国家</h3><p>总数 <strong>${countries?.total ?? 0}</strong></p><small>已发布 ${countries?.published ?? 0} / 草稿 ${countries?.draft ?? 0}</small></article>
+          <article class="card muted-panel"><h3>供应商</h3><p>总数 <strong>${operators?.total ?? 0}</strong></p><small>已发布 ${operators?.published ?? 0} / 草稿 ${operators?.draft ?? 0}</small></article>
+          <article class="card muted-panel"><h3>套餐</h3><p>总数 <strong>${products?.total ?? 0}</strong></p><small>已发布 ${products?.published ?? 0} / 草稿 ${products?.draft ?? 0}</small></article>
+          <article class="card muted-panel"><h3>文章</h3><p>总数 <strong>${posts?.total ?? 0}</strong></p><small>已发布 ${posts?.published ?? 0} / 草稿 ${posts?.draft ?? 0}</small></article>
+          <article class="card muted-panel"><h3>文章分类</h3><p>总数 <strong>${categories?.total ?? 0}</strong></p><small>用于文章归类与前台内容导航</small></article>
         </div>
       </section>
-      <section class="card">
-        <h2>文章语言覆盖</h2>
-        <div class="chip-row">
-          <span class="btn">${escapeHtml(pick(locale, '中英双语', 'Bilingual'))} ${escapeHtml(String(postLocaleCoverage?.bilingual ?? 0))}</span>
-          <span class="btn">${escapeHtml(pick(locale, '仅中文', 'Chinese only'))} ${escapeHtml(String(postLocaleCoverage?.zh_only ?? 0))}</span>
-          <span class="btn">${escapeHtml(pick(locale, '仅英文', 'English only'))} ${escapeHtml(String(postLocaleCoverage?.en_only ?? 0))}</span>
-        </div>
-        <div style="height:12px"></div>
-        <p>${escapeHtml(pick(locale, '文章模块现已按同一篇文章分组统计，中英双语版本会视为同一篇内容。', 'Posts are now grouped as a single article, and bilingual versions count as one piece of content.'))}</p>
+      <section class="split-grid">
+        <section class="card">
+          <h2>发布状态</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>模块</th><th>已发布</th><th>定时发布</th><th>草稿</th><th>已归档</th></tr></thead>
+              <tbody>
+                <tr><td>国家</td><td>${countries?.published ?? 0}</td><td>${countries?.scheduled ?? 0}</td><td>${countries?.draft ?? 0}</td><td>${countries?.archived ?? 0}</td></tr>
+                <tr><td>供应商</td><td>${operators?.published ?? 0}</td><td>${operators?.scheduled ?? 0}</td><td>${operators?.draft ?? 0}</td><td>${operators?.archived ?? 0}</td></tr>
+                <tr><td>套餐</td><td>${products?.published ?? 0}</td><td>${products?.scheduled ?? 0}</td><td>${products?.draft ?? 0}</td><td>${products?.archived ?? 0}</td></tr>
+                <tr><td>文章</td><td>${posts?.published ?? 0}</td><td>${posts?.scheduled ?? 0}</td><td>${posts?.draft ?? 0}</td><td>${posts?.archived ?? 0}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <section class="card">
+          <h2>文章语言覆盖</h2>
+          <div class="chip-row">
+            <span class="btn">${escapeHtml(pick(locale, '中英双语', 'Bilingual'))} ${escapeHtml(String(postLocaleCoverage?.bilingual ?? 0))}</span>
+            <span class="btn">${escapeHtml(pick(locale, '仅中文', 'Chinese only'))} ${escapeHtml(String(postLocaleCoverage?.zh_only ?? 0))}</span>
+            <span class="btn">${escapeHtml(pick(locale, '仅英文', 'English only'))} ${escapeHtml(String(postLocaleCoverage?.en_only ?? 0))}</span>
+          </div>
+          <div style="height:12px"></div>
+          <p>${escapeHtml(pick(locale, '文章模块现已按同一篇文章分组统计，中英双语版本会视为同一篇内容。', 'Posts are now grouped as a single article, and bilingual versions count as one piece of content.'))}</p>
+        </section>
       </section>
-    </section>
-    <section class="card">
-      <h2>${escapeHtml(pick(locale, '快捷入口', 'Quick Actions'))}</h2>
-      <div class="admin-actions">
-        <a class="btn" href="/admin/countries">管理国家页</a>
-        <a class="btn" href="/admin/operators">管理供应商</a>
-        <a class="btn" href="/admin/products">管理套餐</a>
-        <a class="btn" href="/admin/posts">管理文章</a>
-        <a class="btn" href="/admin/settings">网站设置</a>
-        <a class="btn" href="/admin/categories">管理文章分类</a>
-        <a class="btn" href="/admin/import-export">导入/导出</a>
-      </div>
-    </section>
+      <section class="card">
+        <h2>${escapeHtml(pick(locale, '快捷入口', 'Quick Actions'))}</h2>
+        <div class="admin-actions">
+          <a class="btn" href="/admin/countries">管理国家页</a>
+          <a class="btn" href="/admin/operators">管理供应商</a>
+          <a class="btn" href="/admin/products">管理套餐</a>
+          <a class="btn" href="/admin/posts">管理文章</a>
+          <a class="btn" href="/admin/settings">网站设置</a>
+          <a class="btn" href="/admin/categories">管理文章分类</a>
+          <a class="btn" href="/admin/import-export">导入/导出</a>
+        </div>
+      </section>
+    </div>
   </main>
   `
   return html(
@@ -400,35 +402,37 @@ export async function adminListPage(
         <p>${escapeHtml(pick(locale, '集中查看最近更新的内容记录，并进入编辑页继续维护。', 'Review recently updated records and continue editing from here.'))}</p>
       </div>
     </section>
-    ${entity !== 'posts' ? `<section class="card muted-panel"><div class="admin-actions"><a class="btn primary" href="/admin/${entity}/new">${escapeHtml(pick(locale, '新增', 'Create'))} ${escapeHtml(titleMap[entity])}</a></div></section>` : ''}
-    ${entity === 'posts' ? `<section class="card muted-panel"><h2>${escapeHtml(pick(locale, '文章模块', 'Post Module'))}</h2><div class="admin-actions"><a class="btn" href="/admin/posts">${escapeHtml(pick(locale, '全部文章', 'All posts'))}</a><a class="btn ${lang === 'zh' || lang === 'zh-cn' ? 'primary' : ''}" href="/admin/posts?lang=zh">${escapeHtml(pick(locale, '含中文版本', 'Has Chinese'))}</a><a class="btn ${lang === 'en' ? 'primary' : ''}" href="/admin/posts?lang=en">${escapeHtml(pick(locale, '含英文版本', 'Has English'))}</a><a class="btn" href="/admin/categories">${escapeHtml(pick(locale, '管理文章分类', 'Manage categories'))}</a><a class="btn primary" href="/admin/posts/new">${escapeHtml(pick(locale, '新增文章', 'New post'))}</a></div></section>` : ''}
-    <section class="card">
-      <div class="table-wrap">
-      <table>
-        <thead>${entity === 'posts' ? '<tr><th>slug</th><th>中文标题</th><th>英文标题</th><th>语言覆盖</th><th>分类</th><th>状态</th><th>更新时间</th><th></th></tr>' : '<tr><th>slug</th><th>name</th><th>status</th><th>updated</th><th></th></tr>'}</thead>
-        <tbody>
-          ${rows
-            .map((r) => {
-              const slug = String(r.slug ?? '')
-              const name = String((r as any).name ?? (r as any).title ?? '')
-              const status = String(r.status ?? '')
-              const updated = String(r.updated_at ?? '')
-              if (entity === 'posts') {
-                const zhTitle = String((r as any).zh_title ?? '')
-                const enTitle = String((r as any).en_title ?? '')
-                const hasZh = Number((r as any).has_zh ?? 0) === 1
-                const hasEn = Number((r as any).has_en ?? 0) === 1
-                const category = String((r as any).category_name ?? '')
-                const coverage = [hasZh ? '中文' : '', hasEn ? 'English' : ''].filter(Boolean).join(' / ') || '未设置'
-                return `<tr><td>${escapeHtml(slug)}</td><td>${escapeHtml(zhTitle || '—')}</td><td>${escapeHtml(enTitle || '—')}</td><td>${escapeHtml(coverage)}</td><td>${escapeHtml(category || '未分类')}</td><td>${escapeHtml(statusLabel(status))}</td><td><small>${escapeHtml(updated)}</small></td><td><a class="btn" href="/admin/${entity}/${escapeHtml(String(r.id))}">编辑</a></td></tr>`
-              }
-              return `<tr><td>${escapeHtml(slug)}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(status ? statusLabel(status) : '—')}</td><td><small>${escapeHtml(updated)}</small></td><td><a class="btn" href="/admin/${entity}/${escapeHtml(String(r.id))}">编辑</a></td></tr>`
-            })
-            .join('')}
-        </tbody>
-      </table>
-      </div>
-    </section>
+    <div class="section-gap">
+      ${entity !== 'posts' ? `<section class="card muted-panel"><div class="admin-actions"><a class="btn primary" href="/admin/${entity}/new">${escapeHtml(pick(locale, '新增', 'Create'))} ${escapeHtml(titleMap[entity])}</a></div></section>` : ''}
+      ${entity === 'posts' ? `<section class="card muted-panel"><h2>${escapeHtml(pick(locale, '文章模块', 'Post Module'))}</h2><div class="admin-actions"><a class="btn" href="/admin/posts">${escapeHtml(pick(locale, '全部文章', 'All posts'))}</a><a class="btn ${lang === 'zh' || lang === 'zh-cn' ? 'primary' : ''}" href="/admin/posts?lang=zh">${escapeHtml(pick(locale, '含中文版本', 'Has Chinese'))}</a><a class="btn ${lang === 'en' ? 'primary' : ''}" href="/admin/posts?lang=en">${escapeHtml(pick(locale, '含英文版本', 'Has English'))}</a><a class="btn" href="/admin/categories">${escapeHtml(pick(locale, '管理文章分类', 'Manage categories'))}</a><a class="btn primary" href="/admin/posts/new">${escapeHtml(pick(locale, '新增文章', 'New post'))}</a></div></section>` : ''}
+      <section class="card">
+        <div class="table-wrap">
+        <table>
+          <thead>${entity === 'posts' ? '<tr><th>slug</th><th>中文标题</th><th>英文标题</th><th>语言覆盖</th><th>分类</th><th>状态</th><th>更新时间</th><th></th></tr>' : '<tr><th>slug</th><th>name</th><th>status</th><th>updated</th><th></th></tr>'}</thead>
+          <tbody>
+            ${rows
+              .map((r) => {
+                const slug = String(r.slug ?? '')
+                const name = String((r as any).name ?? (r as any).title ?? '')
+                const status = String(r.status ?? '')
+                const updated = String(r.updated_at ?? '')
+                if (entity === 'posts') {
+                  const zhTitle = String((r as any).zh_title ?? '')
+                  const enTitle = String((r as any).en_title ?? '')
+                  const hasZh = Number((r as any).has_zh ?? 0) === 1
+                  const hasEn = Number((r as any).has_en ?? 0) === 1
+                  const category = String((r as any).category_name ?? '')
+                  const coverage = [hasZh ? '中文' : '', hasEn ? 'English' : ''].filter(Boolean).join(' / ') || '未设置'
+                  return `<tr><td>${escapeHtml(slug)}</td><td>${escapeHtml(zhTitle || '—')}</td><td>${escapeHtml(enTitle || '—')}</td><td>${escapeHtml(coverage)}</td><td>${escapeHtml(category || '未分类')}</td><td>${escapeHtml(statusLabel(status))}</td><td><small>${escapeHtml(updated)}</small></td><td><a class="btn" href="/admin/${entity}/${escapeHtml(String(r.id))}">编辑</a></td></tr>`
+                }
+                return `<tr><td>${escapeHtml(slug)}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(status ? statusLabel(status) : '—')}</td><td><small>${escapeHtml(updated)}</small></td><td><a class="btn" href="/admin/${entity}/${escapeHtml(String(r.id))}">编辑</a></td></tr>`
+              })
+              .join('')}
+          </tbody>
+        </table>
+        </div>
+      </section>
+    </div>
   </main>
   `
   return html(

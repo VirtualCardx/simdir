@@ -157,45 +157,47 @@ export async function homePage(env: Bindings, req: Request): Promise<Response> {
         </form>
       </div>
     </section>
-    <section class="split-grid" aria-label="Directory">
-      <div class="card">
-        <h2>${escapeHtml(pick(locale, '热门国家', 'Popular countries'))}</h2>
-        <p>${escapeHtml(pick(locale, '从国家入口快速进入对应的套餐与运营商列表页。', 'Jump from country hubs to available operators and plans.'))}</p>
-        <div class="chip-row">
-          ${countries
-            .map((c) => `<a class="btn" href="/country/${escapeHtml(c.slug)}">${escapeHtml(localizedText(locale, c.name_zh, c.name_en, c.name))}</a>`)
+    <div class="section-gap">
+      <section class="split-grid" aria-label="Directory">
+        <div class="card">
+          <h2>${escapeHtml(pick(locale, '热门国家', 'Popular countries'))}</h2>
+          <p>${escapeHtml(pick(locale, '从国家入口快速进入对应的套餐与运营商列表页。', 'Jump from country hubs to available operators and plans.'))}</p>
+          <div class="chip-row">
+            ${countries
+              .map((c) => `<a class="btn" href="/country/${escapeHtml(c.slug)}">${escapeHtml(localizedText(locale, c.name_zh, c.name_en, c.name))}</a>`)
+              .join('')}
+          </div>
+        </div>
+        <section class="card muted-panel" aria-label="Operators">
+        <h2>${escapeHtml(pick(locale, '最新供应商', 'Latest operators'))}</h2>
+        <p>${escapeHtml(pick(locale, '首页仅展示已发布的供应商。', 'The homepage only shows published operators.'))}</p>
+        <div class="card-grid">
+          ${operators
+            .map((o) => {
+              const operatorName = localizedText(locale, o.name_zh, o.name_en, o.name)
+              const logo = o.logo_image_key ? `<img src="${escapeHtml(mediaUrl(env.APP_ORIGIN, o.logo_image_key))}" alt="${escapeHtml(operatorName)} logo" width="48" height="48" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover" />` : ''
+              return `<a class="card card-link" href="/operator/${escapeHtml(o.slug)}">
+                ${logo}
+                <div>
+                  <strong>${escapeHtml(operatorName)}</strong>
+                  <div><small>${escapeHtml(pick(locale, '查看供应商详情', 'View operator details'))}</small></div>
+                </div>
+              </a>`
+            })
             .join('')}
         </div>
-      </div>
-      <section class="card muted-panel" aria-label="Operators">
-      <h2>${escapeHtml(pick(locale, '最新供应商', 'Latest operators'))}</h2>
-      <p>${escapeHtml(pick(locale, '首页仅展示已发布的供应商。', 'The homepage only shows published operators.'))}</p>
-      <div class="card-grid">
-        ${operators
-          .map((o) => {
-            const operatorName = localizedText(locale, o.name_zh, o.name_en, o.name)
-            const logo = o.logo_image_key ? `<img src="${escapeHtml(mediaUrl(env.APP_ORIGIN, o.logo_image_key))}" alt="${escapeHtml(operatorName)} logo" width="48" height="48" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover" />` : ''
-            return `<a class="card card-link" href="/operator/${escapeHtml(o.slug)}">
-              ${logo}
-              <div>
-                <strong>${escapeHtml(operatorName)}</strong>
-                <div><small>${escapeHtml(pick(locale, '查看供应商详情', 'View operator details'))}</small></div>
-              </div>
-            </a>`
-          })
-          .join('')}
-      </div>
+        </section>
       </section>
-    </section>
-    <section class="card">
-      <h2>${escapeHtml(pick(locale, '热门资讯类型', 'Popular news categories'))}</h2>
-      <p>${escapeHtml(pick(locale, '按资讯类型快速进入已发布文章聚合页。', 'Jump into published article collections by topic.'))}</p>
-      <div class="card-grid">
-        ${postCategories
-          .map((c) => `<a class="card card-link" href="/posts/category/${escapeHtml(c.slug)}"><div><strong>${escapeHtml(c.name)}</strong><div><small>${escapeHtml(String(c.post_count))} ${escapeHtml(pick(locale, '篇文章', 'articles'))}</small></div></div></a>`)
-          .join('')}
-      </div>
-    </section>
+      <section class="card">
+        <h2>${escapeHtml(pick(locale, '热门资讯类型', 'Popular news categories'))}</h2>
+        <p>${escapeHtml(pick(locale, '按资讯类型快速进入已发布文章聚合页。', 'Jump into published article collections by topic.'))}</p>
+        <div class="card-grid">
+          ${postCategories
+            .map((c) => `<a class="card card-link" href="/posts/category/${escapeHtml(c.slug)}"><div><strong>${escapeHtml(c.name)}</strong><div><small>${escapeHtml(String(c.post_count))} ${escapeHtml(pick(locale, '篇文章', 'articles'))}</small></div></div></a>`)
+            .join('')}
+        </div>
+      </section>
+    </div>
   </main>
   <footer>
     <small>${escapeHtml(pick(locale, '免责声明：价格与覆盖范围可能变化，本站不直接销售 eSIM。', 'Disclaimer: prices and coverage may change. This site does not sell eSIMs directly.'))}</small>

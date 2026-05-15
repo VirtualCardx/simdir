@@ -765,14 +765,15 @@ export async function adminSiteSettingsPage(env: Bindings, req: Request): Promis
     <h1>网站设置</h1>
     ${success ? `<section class="card notice success"><strong>保存成功</strong><p>网站设置已更新${uploaded === 'logo' ? '，站点 Logo 已同步上传。' : uploaded === 'favicon' ? '，地址栏图标已同步上传。' : uploaded === 'both' ? '，Logo 与地址栏图标已同步上传。' : '。'}</p></section>` : ''}
     ${error ? `<section class="card notice error"><strong>保存失败</strong><p>${escapeHtml(error)}</p></section>` : ''}
-    <section class="card muted-panel">
-      <div class="admin-actions">
-        <a class="btn" href="/admin">返回概览</a>
-        <a class="btn" href="/" target="_blank" rel="noopener">预览前台</a>
-      </div>
-    </section>
-    <section class="card">
-      <form method="POST" action="/admin/settings" enctype="multipart/form-data">
+    <div class="section-gap">
+      <section class="card muted-panel">
+        <div class="admin-actions">
+          <a class="btn" href="/admin">返回概览</a>
+          <a class="btn" href="/" target="_blank" rel="noopener">预览前台</a>
+        </div>
+      </section>
+      <section class="card">
+        <form method="POST" action="/admin/settings" enctype="multipart/form-data">
         <div class="grid" style="grid-template-columns:1fr 1fr">
           <label><small>网站标题（中文）</small><input class="input" name="site_title_zh" value="${escapeHtml(settings.siteTitleZh)}" required></label>
           <label><small>网站标题（English）</small><input class="input" name="site_title_en" value="${escapeHtml(settings.siteTitleEn)}" required></label>
@@ -833,8 +834,9 @@ export async function adminSiteSettingsPage(env: Bindings, req: Request): Promis
         </section>
         <div style="height:12px"></div>
         <button class="btn primary" type="submit">保存网站设置</button>
-      </form>
-    </section>
+        </form>
+      </section>
+    </div>
   </main>
   `
   return html(
@@ -973,8 +975,10 @@ export async function adminEditCategoryPage(env: Bindings, req: Request, id: str
           </label>
         </div>
         <div style="height:12px"></div>
-        <button class="btn primary" type="submit">保存</button>
-        <a class="btn" href="/admin/categories">返回列表</a>
+        <div class="admin-actions">
+          <button class="btn primary" type="submit">保存</button>
+          <a class="btn" href="/admin/categories">返回列表</a>
+        </div>
       </form>
     </section>
   </main>
@@ -1169,8 +1173,10 @@ export async function adminEditCountryPage(env: Bindings, req: Request, id: stri
         <div style="height:12px"></div>
         ${jsonTextarea('faq_json', 'faq_json（当前仍为通用 JSON）', v.faq_json ?? '[]', 6)}
         <div style="height:12px"></div>
-        <button class="btn primary" type="submit">保存</button>
-        <a class="btn" href="/admin/countries">返回列表</a>
+        <div class="admin-actions">
+          <button class="btn primary" type="submit">保存</button>
+          <a class="btn" href="/admin/countries">返回列表</a>
+        </div>
       </form>
     </section>
   </main>
@@ -1406,8 +1412,10 @@ export async function adminEditOperatorPage(env: Bindings, req: Request, id: str
         <div style="height:12px"></div>
         ${jsonTextarea('faq_json', 'faq_json（当前仍为通用 JSON）', v.faq_json ?? '[]', 6)}
         <div style="height:12px"></div>
-        <button class="btn primary" type="submit">保存</button>
-        <a class="btn" href="/admin/operators">返回列表</a>
+        <div class="admin-actions">
+          <button class="btn primary" type="submit">保存</button>
+          <a class="btn" href="/admin/operators">返回列表</a>
+        </div>
       </form>
     </section>
   </main>
@@ -1630,8 +1638,10 @@ export async function adminEditProductPage(env: Bindings, req: Request, id: stri
           `
         )}
         <div style="height:12px"></div>
-        <button class="btn primary" type="submit">保存</button>
-        <a class="btn" href="/admin/products">返回列表</a>
+        <div class="admin-actions">
+          <button class="btn primary" type="submit">保存</button>
+          <a class="btn" href="/admin/products">返回列表</a>
+        </div>
       </form>
     </section>
   </main>
@@ -1900,8 +1910,10 @@ export async function adminEditPostPage(env: Bindings, req: Request, id: string 
           `
         )}
         <div style="height:12px"></div>
-        <button class="btn primary" type="submit">保存</button>
-        <a class="btn" href="/admin/posts">返回文章列表</a>
+        <div class="admin-actions">
+          <button class="btn primary" type="submit">保存</button>
+          <a class="btn" href="/admin/posts">返回文章列表</a>
+        </div>
       </form>
     </section>
   </main>

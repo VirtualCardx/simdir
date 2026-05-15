@@ -11,7 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "deploy": "wrangler deploy",
     "d1:migrate:local": "wrangler d1 migrations apply esim_directory --local",
-    "d1:migrate:remote": "wrangler d1 migrations apply esim_directory"
+    "d1:migrate:remote": "wrangler d1 migrations apply esim_directory --remote"
   },
   "dependencies": {
     "@cloudflare/workers-types": "^4.20260508.0",

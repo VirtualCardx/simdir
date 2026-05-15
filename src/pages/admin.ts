@@ -7,7 +7,7 @@ import { criticalCss, layout } from '../lib/templates'
 import { autoDescription, escapeHtml } from '../lib/seo'
 import { clearAuthCookies, authCookies, issueTokens, refreshTokens, requireAdmin } from '../lib/auth'
 import { ulid, nowIso } from '../lib/ids'
-import { verifyPassword } from '../lib/password'
+import { hashPassword, isPasswordHashSupported, verifyPassword } from '../lib/password'
 import { languageSwitchHref, pick, resolveLocale, type SiteLocale } from '../lib/i18n'
 
 type AdminUser = { id: string; email: string; password_hash: string; role: string }
@@ -471,7 +471,24 @@ export async function apiAdminLogin(env: Bindings, req: Request): Promise<Respon
     .limit(1)
     .get() as AdminUser | undefined
   if (!user) return unauthorized('Invalid credentials')
-  const ok = await verifyPassword(password, user.password_hash)
+  let ok = false
+  if (isPasswordHashSupported(user.password_hash)) {
+    ok = await verifyPassword(password, user.password_hash)
+  } else if (
+    env.BOOTSTRAP_ADMIN === 'true' &&
+    env.BOOTSTRAP_ADMIN_EMAIL?.toLowerCase().trim() === email &&
+    env.BOOTSTRAP_ADMIN_PASSWORD === password
+  ) {
+    const passwordHash = await hashPassword(password, crypto.randomUUID())
+    await db
+      .update(schema.adminUsers)
+      .set({
+        passwordHash,
+        updatedAt: nowIso()
+      })
+      .where(eq(schema.adminUsers.id, user.id))
+    ok = true
+  }
   if (!ok) return unauthorized('Invalid credentials')
   const tokens = await issueTokens(env, user.id, user.role)
   const cookies = authCookies({ access: tokens.access, refresh: tokens.refresh }, secure)

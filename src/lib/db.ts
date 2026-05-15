@@ -1,7 +1,8 @@
-import { sql, type SQL } from 'drizzle-orm'
+import { eq, sql, type SQL } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/d1'
 import type { Bindings } from '../env'
 import * as schema from '../db/schema'
+import { hashPassword, isPasswordHashSupported } from './password'
 
 export function getDb(db: D1Database) {
   return drizzle(db, { schema })
@@ -38,11 +39,31 @@ export async function bootstrapAdminIfNeeded(env: Bindings): Promise<void> {
   if (env.BOOTSTRAP_ADMIN !== 'true') return
   if (!env.BOOTSTRAP_ADMIN_EMAIL || !env.BOOTSTRAP_ADMIN_PASSWORD) return
   const db = getDb(env.DB)
-  const existing = await db.select({ id: schema.adminUsers.id }).from(schema.adminUsers).limit(1).get()
-  if (existing) return
   const email = env.BOOTSTRAP_ADMIN_EMAIL.toLowerCase().trim()
+  const existing = await db
+    .select({
+      id: schema.adminUsers.id,
+      email: schema.adminUsers.email,
+      passwordHash: schema.adminUsers.passwordHash
+    })
+    .from(schema.adminUsers)
+    .limit(1)
+    .get()
+  if (existing) {
+    if (existing.email === email && !isPasswordHashSupported(existing.passwordHash)) {
+      const salt = crypto.randomUUID()
+      const passwordHash = await hashPassword(env.BOOTSTRAP_ADMIN_PASSWORD, salt)
+      await db
+        .update(schema.adminUsers)
+        .set({
+          passwordHash,
+          updatedAt: new Date().toISOString()
+        })
+        .where(eq(schema.adminUsers.id, existing.id))
+    }
+    return
+  }
   const salt = crypto.randomUUID()
-  const { hashPassword } = await import('./password')
   const passwordHash = await hashPassword(env.BOOTSTRAP_ADMIN_PASSWORD, salt)
   const id = crypto.randomUUID()
   const now = new Date().toISOString()

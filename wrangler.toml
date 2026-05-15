@@ -15,17 +15,16 @@ REFRESH_TOKEN_TTL_SECONDS = "2592000"
 [[d1_databases]]
 binding = "DB"
 database_name = "esim_directory"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "adbb21e1-2973-429c-89ba-1258eb4305c0"
 migrations_dir = "migrations"
 
 [[kv_namespaces]]
 binding = "KV"
-id = "00000000000000000000000000000000"
+id = "4997cf223c9e48239a7b9d07d6493351"
 
 [[r2_buckets]]
 binding = "R2"
 bucket_name = "esim-directory-media"
 
 [triggers]
-crons = ["*/5 * * * *"]
-
+crons = [ "*/5 * * * *" ]

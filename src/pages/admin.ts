@@ -8,13 +8,11 @@ import { autoDescription, escapeHtml } from '../lib/seo'
 import { clearAuthCookies, authCookies, issueTokens, refreshTokens, requireAdmin } from '../lib/auth'
 import { ulid, nowIso } from '../lib/ids'
 import { hashPassword, isPasswordHashSupported, verifyPassword } from '../lib/password'
-import { languageSwitchHref, pick, resolveLocale, type SiteLocale } from '../lib/i18n'
+import { pick, resolveLocale, type SiteLocale } from '../lib/i18n'
 
 type AdminUser = { id: string; email: string; password_hash: string; role: string }
 
 function adminHeader(env: Bindings, req: Request, locale: SiteLocale, actions: string): string {
-  const current = new URL(req.url)
-  const currentPath = `${current.pathname}${current.search}`
   return `<header>
     <nav class="nav-shell">
       <a class="nav-brand" href="/">
@@ -25,18 +23,16 @@ function adminHeader(env: Bindings, req: Request, locale: SiteLocale, actions: s
         </span>
       </a>
       <div class="nav-links">
-        <a class="nav-link" href="/admin">${escapeHtml(pick(locale, '概览', 'Overview'))}</a>
-        <a class="nav-link" href="/admin/countries">${escapeHtml(pick(locale, '国家', 'Countries'))}</a>
-        <a class="nav-link" href="/admin/operators">${escapeHtml(pick(locale, '供应商', 'Operators'))}</a>
-        <a class="nav-link" href="/admin/products">${escapeHtml(pick(locale, '套餐', 'Products'))}</a>
-        <a class="nav-link" href="/admin/posts">${escapeHtml(pick(locale, '文章', 'Posts'))}</a>
-        <a class="nav-link" href="/admin/settings">${escapeHtml(pick(locale, '网站设置', 'Settings'))}</a>
-        <a class="nav-link" href="/admin/media">${escapeHtml(pick(locale, '媒体', 'Media'))}</a>
-        <a class="nav-link" href="/admin/import-export">${escapeHtml(pick(locale, '导入/导出', 'Import / Export'))}</a>
+        <a class="nav-link" href="/admin">${escapeHtml('概览')}</a>
+        <a class="nav-link" href="/admin/countries">${escapeHtml('国家')}</a>
+        <a class="nav-link" href="/admin/operators">${escapeHtml('供应商')}</a>
+        <a class="nav-link" href="/admin/products">${escapeHtml('套餐')}</a>
+        <a class="nav-link" href="/admin/posts">${escapeHtml('文章')}</a>
+        <a class="nav-link" href="/admin/settings">${escapeHtml('网站设置')}</a>
+        <a class="nav-link" href="/admin/media">${escapeHtml('媒体')}</a>
+        <a class="nav-link" href="/admin/import-export">${escapeHtml('导入/导出')}</a>
       </div>
       <div class="nav-actions">
-        <a class="btn ${locale === 'zh' ? 'primary' : ''}" data-lang-switch="zh" href="${escapeHtml(languageSwitchHref('zh', currentPath))}">中文</a>
-        <a class="btn ${locale === 'en' ? 'primary' : ''}" data-lang-switch="en" href="${escapeHtml(languageSwitchHref('en', currentPath))}">EN</a>
         ${actions}
       </div>
     </nav>

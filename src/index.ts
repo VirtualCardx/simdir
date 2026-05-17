@@ -30,6 +30,17 @@ import {
   adminMediaUpload
 } from './pages/admin-edit'
 import { adminImportExportPage, apiAdminExport, apiAdminImport } from './pages/admin-import'
+import {
+  apiAdminAgentDashboard,
+  apiAdminAgentDelete,
+  apiAdminAgentGet,
+  apiAdminAgentGetSettings,
+  apiAdminAgentHealth,
+  apiAdminAgentList,
+  apiAdminAgentPutSettings,
+  apiAdminAgentSave,
+  apiAdminAgentUploadMedia
+} from './pages/api-admin-agent'
 
 const router = new Router()
 
@@ -97,6 +108,36 @@ router.on('POST', '/api/admin/auth/refresh', async ({ req }) => apiAdminRefresh(
 router.on('POST', '/api/admin/media/upload', async ({ req }) => apiAdminUpload((req as any).env, req))
 router.on('GET', '/api/admin/export', async ({ req }) => apiAdminExport((req as any).env, req))
 router.on('POST', '/api/admin/import', async ({ req }) => apiAdminImport((req as any).env, req))
+router.on('GET', '/api/admin/agent/health', async ({ req }) => apiAdminAgentHealth((req as any).env, req))
+router.on('GET', '/api/admin/agent/dashboard', async ({ req }) => apiAdminAgentDashboard((req as any).env, req))
+router.on('GET', '/api/admin/agent/settings', async ({ req }) => apiAdminAgentGetSettings((req as any).env, req))
+router.on('PUT', '/api/admin/agent/settings', async ({ req }) => apiAdminAgentPutSettings((req as any).env, req))
+router.on('POST', '/api/admin/agent/media/upload', async ({ req }) => apiAdminAgentUploadMedia((req as any).env, req))
+router.on('GET', '/api/admin/agent/categories', async ({ req }) => apiAdminAgentList((req as any).env, req, 'categories'))
+router.on('POST', '/api/admin/agent/categories', async ({ req }) => apiAdminAgentSave((req as any).env, req, 'categories'))
+router.on('GET', '/api/admin/agent/categories/:id', async ({ req, params }) => apiAdminAgentGet((req as any).env, req, 'categories', params.id))
+router.on('PUT', '/api/admin/agent/categories/:id', async ({ req, params }) => apiAdminAgentSave((req as any).env, req, 'categories', params.id))
+router.on('DELETE', '/api/admin/agent/categories/:id', async ({ req, params }) => apiAdminAgentDelete((req as any).env, req, 'categories', params.id))
+router.on('GET', '/api/admin/agent/countries', async ({ req }) => apiAdminAgentList((req as any).env, req, 'countries'))
+router.on('POST', '/api/admin/agent/countries', async ({ req }) => apiAdminAgentSave((req as any).env, req, 'countries'))
+router.on('GET', '/api/admin/agent/countries/:id', async ({ req, params }) => apiAdminAgentGet((req as any).env, req, 'countries', params.id))
+router.on('PUT', '/api/admin/agent/countries/:id', async ({ req, params }) => apiAdminAgentSave((req as any).env, req, 'countries', params.id))
+router.on('DELETE', '/api/admin/agent/countries/:id', async ({ req, params }) => apiAdminAgentDelete((req as any).env, req, 'countries', params.id))
+router.on('GET', '/api/admin/agent/operators', async ({ req }) => apiAdminAgentList((req as any).env, req, 'operators'))
+router.on('POST', '/api/admin/agent/operators', async ({ req }) => apiAdminAgentSave((req as any).env, req, 'operators'))
+router.on('GET', '/api/admin/agent/operators/:id', async ({ req, params }) => apiAdminAgentGet((req as any).env, req, 'operators', params.id))
+router.on('PUT', '/api/admin/agent/operators/:id', async ({ req, params }) => apiAdminAgentSave((req as any).env, req, 'operators', params.id))
+router.on('DELETE', '/api/admin/agent/operators/:id', async ({ req, params }) => apiAdminAgentDelete((req as any).env, req, 'operators', params.id))
+router.on('GET', '/api/admin/agent/products', async ({ req }) => apiAdminAgentList((req as any).env, req, 'products'))
+router.on('POST', '/api/admin/agent/products', async ({ req }) => apiAdminAgentSave((req as any).env, req, 'products'))
+router.on('GET', '/api/admin/agent/products/:id', async ({ req, params }) => apiAdminAgentGet((req as any).env, req, 'products', params.id))
+router.on('PUT', '/api/admin/agent/products/:id', async ({ req, params }) => apiAdminAgentSave((req as any).env, req, 'products', params.id))
+router.on('DELETE', '/api/admin/agent/products/:id', async ({ req, params }) => apiAdminAgentDelete((req as any).env, req, 'products', params.id))
+router.on('GET', '/api/admin/agent/posts', async ({ req }) => apiAdminAgentList((req as any).env, req, 'posts'))
+router.on('POST', '/api/admin/agent/posts', async ({ req }) => apiAdminAgentSave((req as any).env, req, 'posts'))
+router.on('GET', '/api/admin/agent/posts/:id', async ({ req, params }) => apiAdminAgentGet((req as any).env, req, 'posts', params.id))
+router.on('PUT', '/api/admin/agent/posts/:id', async ({ req, params }) => apiAdminAgentSave((req as any).env, req, 'posts', params.id))
+router.on('DELETE', '/api/admin/agent/posts/:id', async ({ req, params }) => apiAdminAgentDelete((req as any).env, req, 'posts', params.id))
 
 router.on('GET', '/api/public/search', async ({ req }) => withApiCache(req, (env) => apiPublicSearch(env, req), 60))
 router.on('GET', '/api/public/country/:slug', async ({ req, params }) => withApiCache(req, (env) => apiPublicCountry(env, params.slug), 120))

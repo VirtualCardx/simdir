@@ -6,6 +6,7 @@ export type Bindings = {
   SITE_NAME: string
   JWT_ISSUER: string
   JWT_SECRET?: string
+  ADMIN_API_BEARER_TOKEN?: string
   BOOTSTRAP_ADMIN?: string
   BOOTSTRAP_ADMIN_EMAIL?: string
   BOOTSTRAP_ADMIN_PASSWORD?: string

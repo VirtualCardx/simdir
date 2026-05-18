@@ -82,6 +82,8 @@ type CategoryRow = {
   id: string
   parent_id: string | null
   name: string
+  name_zh: string | null
+  name_en: string | null
   slug: string
   sort_order: number
 }
@@ -934,6 +936,8 @@ export async function adminEditCategoryPage(env: Bindings, req: Request, id: str
           id: schema.categories.id,
           parent_id: schema.categories.parentId,
           name: schema.categories.name,
+          name_zh: schema.categories.nameZh,
+          name_en: schema.categories.nameEn,
           slug: schema.categories.slug,
           sort_order: schema.categories.sortOrder
         })
@@ -951,7 +955,7 @@ export async function adminEditCategoryPage(env: Bindings, req: Request, id: str
   const canonical = new URL(isNew ? '/admin/categories/new' : `/admin/categories/${id}`, env.APP_ORIGIN).toString()
   const success = url.searchParams.get('success')
   const error = url.searchParams.get('error')
-  const v = row ?? { id: '', parent_id: null, name: '', slug: '', sort_order: 0 }
+  const v = row ?? { id: '', parent_id: null, name: '', name_zh: null, name_en: null, slug: '', sort_order: 0 }
   const body = `
   ${adminNav(env, req, resolveLocale(req))}
   <main>
@@ -961,7 +965,8 @@ export async function adminEditCategoryPage(env: Bindings, req: Request, id: str
     <section class="card">
       <form method="POST" action="${isNew ? '/admin/categories/new' : `/admin/categories/${escapeHtml(String(id))}`}">
         <div class="grid" style="grid-template-columns:1fr 1fr">
-          <label><small>name</small><input class="input" name="name" value="${escapeHtml(v.name)}" required></label>
+          <label><small>分类名称（中文）</small><input class="input" name="name_zh" value="${escapeHtml(v.name_zh ?? v.name)}" required></label>
+          <label><small>分类名称（English）</small><input class="input" name="name_en" value="${escapeHtml(v.name_en ?? v.name)}" required></label>
           <label><small>slug</small><input class="input" name="slug" value="${escapeHtml(v.slug)}" required></label>
           <label><small>sort_order</small><input class="input" name="sort_order" type="number" value="${escapeHtml(String(v.sort_order ?? 0))}"></label>
           <label><small>parent</small>
@@ -996,7 +1001,9 @@ export async function adminSaveCategory(env: Bindings, req: Request, id: string 
   if (!form) return badRequest('Invalid form')
   const entityId = id ?? ulid()
   const now = nowIso()
-  const name = String(form.get('name') ?? '').trim()
+  const nameZh = String(form.get('name_zh') ?? '').trim()
+  const nameEn = String(form.get('name_en') ?? '').trim()
+  const name = nameZh || nameEn
   const slug = String(form.get('slug') ?? '').trim()
   const sortOrder = parseInt(String(form.get('sort_order') ?? '0'), 10)
   const parentId = String(form.get('parent_id') ?? '').trim() || null
@@ -1009,6 +1016,8 @@ export async function adminSaveCategory(env: Bindings, req: Request, id: string 
       id: schema.categories.id,
       parent_id: schema.categories.parentId,
       name: schema.categories.name,
+      name_zh: schema.categories.nameZh,
+      name_en: schema.categories.nameEn,
       slug: schema.categories.slug,
       sort_order: schema.categories.sortOrder
     })
@@ -1029,6 +1038,8 @@ export async function adminSaveCategory(env: Bindings, req: Request, id: string 
       id: entityId,
       parentId,
       name,
+      nameZh: nameZh || null,
+      nameEn: nameEn || null,
       slug,
       sortOrder,
       createdAt: now,
@@ -1039,6 +1050,8 @@ export async function adminSaveCategory(env: Bindings, req: Request, id: string 
       set: {
         parentId,
         name,
+        nameZh: nameZh || null,
+        nameEn: nameEn || null,
         slug,
         sortOrder,
         updatedAt: now

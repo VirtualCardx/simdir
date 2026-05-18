@@ -15,6 +15,8 @@ export const categories = sqliteTable('categories', {
   id: text('id').primaryKey(),
   parentId: text('parent_id'),
   name: text('name').notNull(),
+  nameZh: text('name_zh'),
+  nameEn: text('name_en'),
   slug: text('slug').notNull(),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').notNull(),

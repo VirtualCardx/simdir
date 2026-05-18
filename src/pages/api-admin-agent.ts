@@ -1,5 +1,5 @@
 import type { Bindings } from '../env'
-import { and, desc, eq, like, ne, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, like, ne, or, sql, type SQL } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { getDb } from '../lib/db'
 import { badRequest, json, unauthorized } from '../lib/http'
@@ -441,11 +441,13 @@ export async function apiAdminAgentDelete(env: Bindings, req: Request, entity: M
 async function saveCategory(env: Bindings, id: string, data: Record<string, unknown>): Promise<Response> {
   const db = getDb(env.DB)
   const now = nowIso()
-  const name = asString(data.name)
+  const nameZh = asNullableString(data.name_zh)
+  const nameEn = asNullableString(data.name_en)
+  const name = asString(data.name) || nameZh || nameEn
   const slug = asString(data.slug)
   const sortOrder = asInteger(data.sort_order, 0)
   const parentId = asNullableString(data.parent_id)
-  if (!name || !slug) return badRequest('name and slug are required')
+  if (!name || !slug) return badRequest('name (or name_zh/name_en) and slug are required')
   if (!isValidSlug(slug)) return badRequest('Invalid slug')
 
   try {
@@ -463,6 +465,8 @@ async function saveCategory(env: Bindings, id: string, data: Record<string, unkn
         id,
         parentId,
         name,
+        nameZh: nameZh || null,
+        nameEn: nameEn || null,
         slug,
         sortOrder,
         createdAt: now,
@@ -473,6 +477,8 @@ async function saveCategory(env: Bindings, id: string, data: Record<string, unkn
         set: {
           parentId,
           name,
+          nameZh: nameZh || null,
+          nameEn: nameEn || null,
           slug,
           sortOrder,
           updatedAt: now
@@ -762,67 +768,78 @@ async function saveProduct(env: Bindings, id: string, data: Record<string, unkno
 async function savePost(env: Bindings, id: string, data: Record<string, unknown>): Promise<Response> {
   const db = getDb(env.DB)
   const now = nowIso()
-  const title = asString(data.title)
+
+  const titleZh = asString(data.title_zh)
+  const titleEn = asString(data.title_en)
+  const contentHtmlZh = asString(data.content_html_zh)
+  const contentHtmlEn = asString(data.content_html_en)
   const slug = asString(data.slug)
-  const contentHtml = asString(data.content_html)
-  const locale = asString(data.locale) || 'zh'
   const status = normalizeStatus(data.status)
   const publishAt = parseIsoOrNull(data.publish_at)
   const publishedAt = normalizePublishedAt(status, now)
   const postType = asString(data.post_type) || 'guide'
+  const categoryId = asNullableString(data.category_id)
+  const coverImageKey = asNullableString(data.cover_image_key)
+  const refSlug = asNullableString(data.ref_slug) || slug
 
-  if (!title || !slug || !contentHtml) return badRequest('title, slug and content_html are required')
-  if (!isValidSlug(slug)) return badRequest('Invalid slug')
+  if (!slug || !isValidSlug(slug)) return badRequest('slug is required and must be valid')
+  if (!titleZh && !titleEn) return badRequest('At least one of title_zh or title_en is required')
+  if (!contentHtmlZh && !contentHtmlEn) return badRequest('At least one of content_html_zh or content_html_en is required')
   if (status === 'scheduled' && !publishAt) return badRequest('publish_at required for scheduled')
 
-  try {
-    const duplicateSlug = await db
-      .select({ id: schema.posts.id })
-      .from(schema.posts)
-      .where(and(eq(schema.posts.slug, slug), like(schema.posts.locale, `${locale.toLowerCase()}%`), ne(schema.posts.id, id)))
-      .limit(1)
-      .get()
-    if (duplicateSlug) return json({ error: `Slug already exists for ${locale}` }, { status: 409 })
+  const pairKey = refSlug || slug
+  const existing = id
+    ? await db.select({ id: schema.posts.id, locale: schema.posts.locale, slug: schema.posts.slug, refSlug: schema.posts.refSlug }).from(schema.posts).where(eq(schema.posts.id, id)).limit(1).get()
+    : null
+  const effectivePairKey = existing?.refSlug || existing?.slug || pairKey
+  const groupRows = existing
+    ? await db.select({ id: schema.posts.id, locale: schema.posts.locale }).from(schema.posts).where(or(eq(schema.posts.id, existing.id), eq(schema.posts.refSlug, effectivePairKey), eq(schema.posts.slug, effectivePairKey))).limit(4).all()
+    : []
+  const existingZh = groupRows.find((r) => r.locale.toLowerCase().startsWith('zh'))
+  const existingEn = groupRows.find((r) => r.locale.toLowerCase().startsWith('en'))
+  const zhId = existingZh?.id ?? (existing?.locale?.toLowerCase().startsWith('zh') ? existing.id : ulid())
+  const enId = existingEn?.id ?? (existing?.locale?.toLowerCase().startsWith('en') ? existing.id : ulid())
 
-    await db
-      .insert(schema.posts)
-      .values({
-        id,
-        categoryId: asNullableString(data.category_id),
-        postType,
-        refSlug: asNullableString(data.ref_slug),
-        title,
-        slug,
-        excerpt: asNullableString(data.excerpt),
-        contentHtml,
-        coverImageKey: asNullableString(data.cover_image_key),
-        locale,
-        status,
-        publishAt,
-        publishedAt,
-        createdAt: now,
-        updatedAt: now
-      })
-      .onConflictDoUpdate({
-        target: schema.posts.id,
-        set: {
-          categoryId: asNullableString(data.category_id),
-          postType,
-          refSlug: asNullableString(data.ref_slug),
-          title,
-          slug,
-          excerpt: asNullableString(data.excerpt),
-          contentHtml,
-          coverImageKey: asNullableString(data.cover_image_key),
-          locale,
-          status,
-          publishAt,
-          publishedAt: publishedAt ?? sql`${schema.posts.publishedAt}`,
-          updatedAt: now
-        }
-      })
-    await writeAgentAudit(env, 'upsert', 'posts', id, { slug, locale, status, source: 'agent_api' })
-    return json({ ok: true, id })
+  try {
+    if (titleZh && contentHtmlZh) {
+      await db
+        .insert(schema.posts)
+        .values({
+          id: zhId, categoryId, postType, refSlug: effectivePairKey,
+          title: titleZh, slug, excerpt: asNullableString(data.excerpt_zh), contentHtml: contentHtmlZh,
+          coverImageKey, locale: 'zh', status, publishAt, publishedAt, createdAt: now, updatedAt: now
+        })
+        .onConflictDoUpdate({
+          target: schema.posts.id,
+          set: {
+            categoryId, postType, refSlug: effectivePairKey,
+            title: titleZh, slug, excerpt: asNullableString(data.excerpt_zh), contentHtml: contentHtmlZh,
+            coverImageKey, locale: 'zh', status, publishAt,
+            publishedAt: publishedAt ?? sql`${schema.posts.publishedAt}`, updatedAt: now
+          }
+        })
+      await writeAgentAudit(env, 'upsert', 'posts', zhId, { slug, locale: 'zh', status, source: 'agent_api' })
+    }
+    if (titleEn && contentHtmlEn) {
+      await db
+        .insert(schema.posts)
+        .values({
+          id: enId, categoryId, postType, refSlug: effectivePairKey,
+          title: titleEn, slug, excerpt: asNullableString(data.excerpt_en), contentHtml: contentHtmlEn,
+          coverImageKey, locale: 'en', status, publishAt, publishedAt, createdAt: now, updatedAt: now
+        })
+        .onConflictDoUpdate({
+          target: schema.posts.id,
+          set: {
+            categoryId, postType, refSlug: effectivePairKey,
+            title: titleEn, slug, excerpt: asNullableString(data.excerpt_en), contentHtml: contentHtmlEn,
+            coverImageKey, locale: 'en', status, publishAt,
+            publishedAt: publishedAt ?? sql`${schema.posts.publishedAt}`, updatedAt: now
+          }
+        })
+      await writeAgentAudit(env, 'upsert', 'posts', enId, { slug, locale: 'en', status, source: 'agent_api' })
+    }
+    return json({ ok: true, zh_id: zhId, en_id: enId, slug, ref_slug: effectivePairKey })
   } catch (error) {
     return handleDbError(error)
   }

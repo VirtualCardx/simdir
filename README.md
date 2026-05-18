@@ -172,6 +172,25 @@ curl -X PUT http://127.0.0.1:8787/api/admin/agent/operators/REPLACE_ID \
   }'
 ```
 
+创建文章（中英双语）：
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/admin/agent/posts \
+  -H "Authorization: Bearer $ADMIN_API_BEARER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slug": "japan-esim-guide",
+    "title_zh": "日本 eSIM 完全指南",
+    "title_en": "Complete Japan eSIM Guide",
+    "content_html_zh": "<p>日本 eSIM 使用教程</p>",
+    "content_html_en": "<p>How to use eSIM in Japan</p>",
+    "excerpt_zh": "一篇文章搞懂日本 eSIM",
+    "excerpt_en": "Everything you need to know about Japan eSIM",
+    "post_type": "guide",
+    "status": "draft"
+  }'
+```
+
 上传媒体：
 
 ```bash

@@ -21,13 +21,15 @@ type Post = {
   locale: string
   post_type: string
   category_name: string | null
+  category_name_zh: string | null
+  category_name_en: string | null
   category_slug: string | null
   published_at: string | null
   updated_at: string
 }
 type SearchCountry = { name: string; name_zh: string | null; name_en: string | null; slug: string; iso2: string }
 type SearchOperator = { name: string; name_zh: string | null; name_en: string | null; slug: string; logo_image_key: string | null }
-type CategorySummary = { name: string; slug: string; post_count: number }
+type CategorySummary = { name: string; name_zh: string | null; name_en: string | null; slug: string; post_count: number }
 
 const postListSelection = {
   title: schema.posts.title,
@@ -38,6 +40,8 @@ const postListSelection = {
   locale: schema.posts.locale,
   post_type: schema.posts.postType,
   category_name: schema.categories.name,
+  category_name_zh: schema.categories.nameZh,
+  category_name_en: schema.categories.nameEn,
   category_slug: schema.categories.slug,
   published_at: schema.posts.publishedAt,
   updated_at: schema.posts.updatedAt
@@ -117,6 +121,8 @@ export async function homePage(env: Bindings, req: Request): Promise<Response> {
     db
       .select({
         name: schema.categories.name,
+        name_zh: schema.categories.nameZh,
+        name_en: schema.categories.nameEn,
         slug: schema.categories.slug,
         post_count: sql<number>`count(distinct coalesce(nullif(${schema.posts.refSlug}, ''), ${schema.posts.slug}))`
       })
@@ -193,7 +199,7 @@ export async function homePage(env: Bindings, req: Request): Promise<Response> {
         <p>${escapeHtml(pick(locale, '按资讯类型快速进入已发布文章聚合页。', 'Jump into published article collections by topic.'))}</p>
         <div class="card-grid">
           ${postCategories
-            .map((c) => `<a class="card card-link" href="/posts/category/${escapeHtml(c.slug)}"><div><strong>${escapeHtml(c.name)}</strong><div><small>${escapeHtml(String(c.post_count))} ${escapeHtml(pick(locale, '篇文章', 'articles'))}</small></div></div></a>`)
+            .map((c) => `<a class="card card-link" href="/posts/category/${escapeHtml(c.slug)}"><div><strong>${escapeHtml(localizedText(locale, c.name_zh, c.name_en, c.name))}</strong><div><small>${escapeHtml(String(c.post_count))} ${escapeHtml(pick(locale, '篇文章', 'articles'))}</small></div></div></a>`)
             .join('')}
         </div>
       </section>
@@ -248,7 +254,7 @@ export async function postsIndexPage(env: Bindings, req: Request): Promise<Respo
       .orderBy(orderDesc(sql`coalesce(${schema.posts.publishedAt}, ${schema.posts.updatedAt})`))
       .limit(200) as Promise<Post[]>,
     db
-      .select({ name: schema.categories.name, slug: schema.categories.slug })
+      .select({ name: schema.categories.name, name_zh: schema.categories.nameZh, name_en: schema.categories.nameEn, slug: schema.categories.slug })
       .from(schema.categories)
       .orderBy(orderAsc(schema.categories.sortOrder), orderAsc(schema.categories.name))
       .limit(100)
@@ -263,7 +269,7 @@ export async function postsIndexPage(env: Bindings, req: Request): Promise<Respo
       <h2>${escapeHtml(pick(locale, '文章类型', 'Article Types'))}</h2>
       <div class="chip-row">
         <a class="btn ${!category ? 'primary' : ''}" href="${postsUrl('', lang)}">${escapeHtml(pick(locale, '全部资讯', 'All Articles'))}</a>
-        ${categories.map((c) => `<a class="btn ${category === c.slug ? 'primary' : ''}" href="${postsUrl(c.slug, lang)}">${escapeHtml(c.name)}</a>`).join('')}
+        ${categories.map((c) => `<a class="btn ${category === c.slug ? 'primary' : ''}" href="${postsUrl(c.slug, lang)}">${escapeHtml(localizedText(locale, c.name_zh, c.name_en, c.name))}</a>`).join('')}
       </div>
     </section>
     <section class="card posts-section">
@@ -278,7 +284,7 @@ export async function postsIndexPage(env: Bindings, req: Request): Promise<Respo
               <div class="posts-meta">
                 <small>${escapeHtml(date)}</small>
                 <span class="btn">${escapeHtml(localeLabel(p.locale))}</span>
-                ${p.category_name && p.category_slug ? `<a class="btn" href="${postsUrl(p.category_slug, lang)}">${escapeHtml(p.category_name)}</a>` : ''}
+                ${p.category_name && p.category_slug ? `<a class="btn" href="${postsUrl(p.category_slug, lang)}">${escapeHtml(localizedText(locale, p.category_name_zh, p.category_name_en, p.category_name))}</a>` : ''}
               </div>
               ${p.excerpt ? `<div class="posts-excerpt"><small>${escapeHtml(p.excerpt)}</small></div>` : ''}
             </li>`
@@ -446,7 +452,7 @@ export async function postPage(env: Bindings, req: Request, slug: string): Promi
         <small>${escapeHtml(published)}</small>
         <div class="chip-row" style="margin-top:8px">
           <span class="btn">${escapeHtml(localeLabel(p.locale))}</span>
-          ${p.category_name && p.category_slug ? `<a class="btn" href="${postsUrl(p.category_slug, normalizeLocale(p.locale))}">${escapeHtml(p.category_name)}</a>` : ''}
+          ${p.category_name && p.category_slug ? `<a class="btn" href="${postsUrl(p.category_slug, normalizeLocale(p.locale))}">${escapeHtml(localizedText(locale, p.category_name_zh, p.category_name_en, p.category_name))}</a>` : ''}
         </div>
       </div>
     </section>

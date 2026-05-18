@@ -154,6 +154,9 @@ form{display:grid;gap:0}
 .admin-actions{display:flex;flex-wrap:wrap;gap:10px}
 .content-prose{display:grid;gap:12px}
 .content-prose p:last-child{margin-bottom:0}
+.content-prose ul,.content-prose ol{margin:0 0 12px;padding-left:24px}
+.content-prose li{margin-bottom:8px;line-height:1.75;color:var(--muted)}
+.content-prose li:last-child{margin-bottom:0}
 @media (max-width:960px){
 header{padding:10px 0}
 main,footer{padding:16px}

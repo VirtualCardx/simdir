@@ -88,6 +88,96 @@ function publicHeader(env: Bindings, req: Request, locale: SiteLocale, site: Sit
   </header>`
 }
 
+type OperatorListItem = { name: string; name_zh: string | null; name_en: string | null; slug: string; logo_image_key: string | null }
+
+export async function operatorsIndexPage(env: Bindings, req: Request): Promise<Response> {
+  const locale = resolveLocale(req)
+  const site = await getSiteSettings(env)
+  const siteTitle = resolveSiteTitle(env, site, locale)
+  const faviconHref = resolveSiteFaviconUrl(env, site) ?? undefined
+  const url = new URL(req.url)
+  const q = (url.searchParams.get('q') ?? '').trim()
+  const db = getDb(env.DB)
+
+  const where = [eq(schema.operators.status, 'published')]
+  if (q) {
+    const qLike = `%${q.toLowerCase()}%`
+    where.push(or(
+      like(sql`lower(${schema.operators.name})`, qLike),
+      like(sql`lower(coalesce(${schema.operators.nameZh}, ''))`, qLike),
+      like(sql`lower(coalesce(${schema.operators.nameEn}, ''))`, qLike),
+      like(sql`lower(${schema.operators.slug})`, qLike)
+    )!)
+  }
+  const operators = await db
+    .select({
+      name: schema.operators.name,
+      name_zh: schema.operators.nameZh,
+      name_en: schema.operators.nameEn,
+      slug: schema.operators.slug,
+      logo_image_key: schema.operators.logoImageKey
+    })
+    .from(schema.operators)
+    .where(and(...where))
+    .orderBy(orderDesc(schema.operators.updatedAt))
+    .limit(200) as OperatorListItem[]
+
+  const canonical = new URL('/operators', env.APP_ORIGIN).toString()
+  const body = `
+  ${publicHeader(env, req, locale, site, [
+    { href: '/operators', label: pick(locale, 'eSIM服务商', 'eSIM Providers') },
+    { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
+  ])}
+  <main class="section-gap">
+    <section class="page-header">
+      <h1>${escapeHtml(pick(locale, 'eSIM 服务商', 'eSIM Providers'))}</h1>
+      <p>${escapeHtml(pick(locale, '浏览所有已发布的 eSIM 服务商，点击查看详情及套餐。', 'Browse all published eSIM providers. Click to view details and plans.'))}</p>
+    </section>
+    <section class="card muted-panel">
+      <form method="GET" action="/operators" aria-label="Search operators">
+        <label>
+          <span><small>${escapeHtml(pick(locale, '搜索服务商', 'Search providers'))}</small></span>
+          <input class="input" name="q" value="${escapeHtml(q)}" placeholder="${escapeHtml(pick(locale, '输入服务商名称', 'Type provider name'))}" />
+        </label>
+        <div style="height:8px"></div>
+        <div class="action-row">
+          <button class="btn primary" type="submit">${escapeHtml(pick(locale, '搜索', 'Search'))}</button>
+          ${q ? `<a class="btn" href="/operators">${escapeHtml(pick(locale, '清除搜索', 'Clear search'))}</a>` : ''}
+        </div>
+      </form>
+    </section>
+    <section class="card">
+      ${operators.length === 0
+        ? `<p>${escapeHtml(pick(locale, '没有找到匹配的服务商。', 'No matching providers found.'))}</p>`
+        : `<div class="card-grid">${operators
+            .map((o) => {
+              const operatorName = localizedText(locale, o.name_zh, o.name_en, o.name)
+              const logo = o.logo_image_key ? `<img src="${escapeHtml(mediaUrl(env.APP_ORIGIN, o.logo_image_key))}" alt="${escapeHtml(operatorName)} logo" width="48" height="48" loading="lazy" style="border-radius:12px;border:1px solid var(--b);object-fit:cover" />` : ''
+              return `<a class="card card-link" href="/operator/${escapeHtml(o.slug)}">${logo}<div><strong>${escapeHtml(operatorName)}</strong><div><small>${escapeHtml(pick(locale, '查看详情', 'View details'))}</small></div></div></a>`
+            })
+            .join('')}</div>`
+      }
+    </section>
+  </main>
+  `
+  return html(
+    layout(
+      {
+        title: pick(locale, `eSIM 服务商 | ${siteTitle}`, `eSIM Providers | ${siteTitle}`),
+        description: pick(locale, '浏览所有已发布的 eSIM 服务商。', 'Browse all published eSIM providers.'),
+        canonical,
+        keywords: resolveSiteKeywords(site, locale) || undefined,
+        faviconHref,
+        locale: locale === 'zh' ? 'zh-CN' : 'en',
+        robots: 'index, follow'
+      },
+      body,
+      criticalCss()
+    ),
+    { headers: { 'Cache-Control': 'public, max-age=60' } }
+  )
+}
+
 export async function homePage(env: Bindings, req: Request): Promise<Response> {
   const locale = resolveLocale(req)
   const site = await getSiteSettings(env)
@@ -134,6 +224,7 @@ export async function homePage(env: Bindings, req: Request): Promise<Response> {
   ])
   const body = `
   ${publicHeader(env, req, locale, site, [
+    { href: '/operators', label: pick(locale, 'eSIM服务商', 'eSIM Providers') },
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
@@ -262,6 +353,7 @@ export async function postsIndexPage(env: Bindings, req: Request): Promise<Respo
   const canonical = new URL(postsUrl(category, lang), env.APP_ORIGIN).toString()
   const body = `
   ${publicHeader(env, req, locale, site, [
+    { href: '/operators', label: pick(locale, 'eSIM服务商', 'eSIM Providers') },
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main class="section-gap posts-page">
@@ -346,6 +438,7 @@ export async function postCategoryPage(env: Bindings, req: Request, slug: string
   const canonical = new URL(categoryUrl, env.APP_ORIGIN).toString()
   const body = `
   ${publicHeader(env, req, locale, site, [
+    { href: '/operators', label: pick(locale, 'eSIM服务商', 'eSIM Providers') },
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
@@ -442,6 +535,7 @@ export async function postPage(env: Bindings, req: Request, slug: string): Promi
   }
   const body = `
   ${publicHeader(env, req, locale, site, [
+    { href: '/operators', label: pick(locale, 'eSIM服务商', 'eSIM Providers') },
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
@@ -591,6 +685,7 @@ export async function searchPage(env: Bindings, req: Request): Promise<Response>
   const canonical = new URL(`/search?${url.searchParams.toString()}`, env.APP_ORIGIN).toString()
   const body = `
   ${publicHeader(env, req, locale, site, [
+    { href: '/operators', label: pick(locale, 'eSIM服务商', 'eSIM Providers') },
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
@@ -720,6 +815,7 @@ export async function productPage(env: Bindings, req: Request, slug: string): Pr
   }
   const body = `
   ${publicHeader(env, req, locale, site, [
+    { href: '/operators', label: pick(locale, 'eSIM服务商', 'eSIM Providers') },
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>
@@ -831,6 +927,7 @@ export async function countryPage(env: Bindings, req: Request, slug: string): Pr
   }
   const body = `
   ${publicHeader(env, req, locale, site, [
+    { href: '/operators', label: pick(locale, 'eSIM服务商', 'eSIM Providers') },
     { href: '/posts', label: pick(locale, 'SIM卡资讯', 'SIM Card News') }
   ])}
   <main>

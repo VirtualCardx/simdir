@@ -8,7 +8,7 @@ import { notFound } from './lib/http'
 import { bootstrapAdminIfNeeded } from './lib/db'
 import { getObjectResponse } from './lib/media'
 import { makeLocaleCookie, normalizeLocale, resolveLocale, sanitizeRedirectPath } from './lib/i18n'
-import { homePage, countryPage, operatorPage, searchPage, productPage, postsIndexPage, postPage, postCategoryPage } from './pages/public'
+import { operatorsIndexPage, homePage, countryPage, operatorPage, searchPage, productPage, postsIndexPage, postPage, postCategoryPage } from './pages/public'
 import { adminHomePage, adminLoginPage, adminListPage, apiAdminLogin, apiAdminLogout, apiAdminRefresh } from './pages/admin'
 import { robotsTxt, sitemapXml } from './pages/system'
 import { apiPublicCountry, apiPublicOperator, apiPublicSearch } from './pages/api-public'
@@ -45,6 +45,7 @@ import {
 const router = new Router()
 
 router.on('GET', '/', async ({ req }) => withHtmlCache(req, (env) => homePage(env, req)))
+router.on('GET', '/operators', async ({ req }) => withHtmlCache(req, (env) => operatorsIndexPage(env, req)))
 router.on('GET', '/search', async ({ req }) => withHtmlCache(req, (env) => searchPage(env, req)))
 router.on('GET', '/posts', async ({ req }) => withHtmlCache(req, (env) => postsIndexPage(env, req)))
 router.on('GET', '/posts/category/:slug', async ({ req, params }) => withHtmlCache(req, (env) => postCategoryPage(env, req, params.slug)))

@@ -1573,6 +1573,11 @@ export async function adminEditProductPage(env: Bindings, req: Request, id: stri
     .from(schema.operators)
     .orderBy(asc(schema.operators.name))
     .limit(500)
+  const countries = await db
+    .select({ iso2: schema.countries.iso2, name: schema.countries.name })
+    .from(schema.countries)
+    .orderBy(asc(schema.countries.name))
+    .limit(500)
   const operatorId = row?.operator_id ?? (operators[0]?.id ?? '')
 
   const canonical = new URL(isNew ? '/admin/products/new' : `/admin/products/${id}`, env.APP_ORIGIN).toString()
@@ -1621,7 +1626,11 @@ export async function adminEditProductPage(env: Bindings, req: Request, id: stri
         <div style="height:12px"></div>
         <div class="grid" style="grid-template-columns:1fr 1fr">
           <label><small>slug</small><input class="input" name="slug" value="${escapeHtml(v.slug)}" required></label>
-          <label><small>country_iso2</small><input class="input" name="country_iso2" value="${escapeHtml(v.country_iso2)}" required></label>
+          <label><small>country</small>
+            <select class="input" name="country_iso2">${countries
+              .map((c) => `<option value="${escapeHtml(c.iso2)}" ${c.iso2 === v.country_iso2 ? 'selected' : ''}>${escapeHtml(c.name)} (${escapeHtml(c.iso2)})</option>`)
+              .join('')}</select>
+          </label>
           <label><small>status</small><select class="input" name="status">${statusOptions(v.status)}</select></label>
           <label><small>days</small><input class="input" name="days" type="number" min="1" value="${escapeHtml(String(v.days))}" required></label>
           <label><small>data_gb</small><input class="input" name="data_gb" type="number" step="0.1" value="${escapeHtml(v.data_gb == null ? '' : String(v.data_gb))}"></label>

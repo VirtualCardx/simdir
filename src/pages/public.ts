@@ -951,6 +951,7 @@ export async function countryPage(env: Bindings, req: Request, slug: string): Pr
     <section class="card" aria-label="Guide">${content}</section>
     <h2>${escapeHtml(pick(locale, '推荐套餐', 'Recommended Plans'))}</h2>
     <div class="card" aria-label="Products">
+      <div class="table-wrap">
       <table>
         <thead><tr><th>${escapeHtml(pick(locale, '供应商', 'Operator'))}</th><th>${escapeHtml(pick(locale, '套餐', 'Plan'))}</th><th>${escapeHtml(pick(locale, '天数', 'Days'))}</th><th>${escapeHtml(pick(locale, '流量', 'Data'))}</th><th>${escapeHtml(pick(locale, '热点', 'Hotspot'))}</th><th>${escapeHtml(pick(locale, '价格', 'Price'))}</th><th></th></tr></thead>
         <tbody>
@@ -974,6 +975,7 @@ export async function countryPage(env: Bindings, req: Request, slug: string): Pr
             .join('')}
         </tbody>
       </table>
+      </div>
     </div>
   </main>
   <footer><small>${escapeHtml(pick(locale, '价格与覆盖范围以供应商页面为准。', 'Final prices and coverage are subject to operator pages.'))}</small></footer>

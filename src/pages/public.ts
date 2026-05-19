@@ -53,6 +53,19 @@ function localizedText(locale: SiteLocale, zh: string | null | undefined, en: st
   return (primary ?? '').trim() || (secondary ?? '').trim() || fallback
 }
 
+function formatDate(iso: string | null | undefined, locale: SiteLocale): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return iso
+    return locale === 'zh'
+      ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  } catch {
+    return iso
+  }
+}
+
 function postsUrl(category: string, lang: string): string {
   const qs = new URLSearchParams()
   if (category) qs.set('category', category)
@@ -374,7 +387,7 @@ export async function postsIndexPage(env: Bindings, req: Request): Promise<Respo
             return `<li class="posts-item">
               <a href="/post/${escapeHtml(p.slug)}"><strong>${escapeHtml(p.title)}</strong></a>
               <div class="posts-meta">
-                <small>${escapeHtml(date)}</small>
+                <small>${escapeHtml(formatDate(date, locale))}</small>
                 <span class="btn">${escapeHtml(localeLabel(p.locale))}</span>
                 ${p.category_name && p.category_slug ? `<a class="btn" href="${postsUrl(p.category_slug, lang)}">${escapeHtml(localizedText(locale, p.category_name_zh, p.category_name_en, p.category_name))}</a>` : ''}
               </div>
@@ -419,7 +432,7 @@ export async function postCategoryPage(env: Bindings, req: Request, slug: string
   const lang = locale
   const db = getDb(env.DB)
   const category = await db
-    .select({ id: schema.categories.id, name: schema.categories.name, slug: schema.categories.slug })
+    .select({ id: schema.categories.id, name: schema.categories.name, name_zh: schema.categories.nameZh, name_en: schema.categories.nameEn, slug: schema.categories.slug })
     .from(schema.categories)
     .where(eq(schema.categories.slug, slug))
     .limit(1)
@@ -443,11 +456,11 @@ export async function postCategoryPage(env: Bindings, req: Request, slug: string
   ])}
   <main>
     <section class="page-header">
-      <nav aria-label="Breadcrumb"><small><a href="/">首页</a> / <a href="/posts">${escapeHtml(pick(locale, 'SIM卡资讯', 'SIM Card News'))}</a> / ${escapeHtml(category.name)}</small></nav>
+      <nav aria-label="Breadcrumb"><small><a href="/">${escapeHtml(pick(locale, '首页', 'Home'))}</a> / <a href="/posts">${escapeHtml(pick(locale, 'SIM卡资讯', 'SIM Card News'))}</a> / ${escapeHtml(localizedText(locale, category.name_zh, category.name_en, category.name))}</small></nav>
       <div>
         <span class="eyebrow">${escapeHtml(pick(locale, '分类页', 'Category'))}</span>
-        <h1>${escapeHtml(category.name)}</h1>
-        <p>${escapeHtml(pick(locale, '浏览', 'Browse'))} ${escapeHtml(category.name)} ${escapeHtml(pick(locale, '分类下已发布的文章内容，并跟随全站语言显示。', 'published articles in this category, following the current site language.'))}</p>
+        <h1>${escapeHtml(localizedText(locale, category.name_zh, category.name_en, category.name))}</h1>
+        <p>${escapeHtml(pick(locale, '浏览', 'Browse'))} ${escapeHtml(localizedText(locale, category.name_zh, category.name_en, category.name))} ${escapeHtml(pick(locale, '分类下已发布的文章内容，并跟随全站语言显示。', 'published articles in this category, following the current site language.'))}</p>
       </div>
     </section>
     <section class="card">
@@ -461,7 +474,7 @@ export async function postCategoryPage(env: Bindings, req: Request, slug: string
             const date = p.published_at ?? p.updated_at
             return `<li style="margin:10px 0">
               <a href="/post/${escapeHtml(p.slug)}"><strong>${escapeHtml(p.title)}</strong></a>
-              <div><small>${escapeHtml(date)}</small></div>
+              <div><small>${escapeHtml(formatDate(date, locale))}</small></div>
               <div><small>${escapeHtml(localeLabel(p.locale))}</small></div>
               ${p.excerpt ? `<div><small>${escapeHtml(p.excerpt)}</small></div>` : ''}
             </li>`
@@ -471,11 +484,12 @@ export async function postCategoryPage(env: Bindings, req: Request, slug: string
     </section>
   </main>
   `
+  const categoryName = localizedText(locale, category.name_zh, category.name_en, category.name)
   return html(
     layout(
       {
-        title: `${category.name} | ${siteTitle}`,
-        description: pick(locale, `${category.name} 分类下的 SIM卡资讯文章。`, `SIM card news articles under ${category.name}.`),
+        title: `${categoryName} | ${siteTitle}`,
+        description: pick(locale, `${categoryName} 分类下的 SIM卡资讯文章。`, `SIM card news articles under ${categoryName}.`),
         canonical,
         keywords: resolveSiteKeywords(site, locale) || undefined,
         faviconHref,
@@ -484,7 +498,7 @@ export async function postCategoryPage(env: Bindings, req: Request, slug: string
           {
             '@context': 'https://schema.org',
             '@type': 'CollectionPage',
-            name: category.name,
+            name: categoryName,
             url: canonical
           }
         ]
@@ -540,10 +554,10 @@ export async function postPage(env: Bindings, req: Request, slug: string): Promi
   ])}
   <main>
     <section class="page-header">
-      <nav aria-label="Breadcrumb"><small><a href="/">首页</a> / <a href="/posts">${escapeHtml(pick(locale, 'SIM卡资讯', 'SIM Card News'))}</a>${p.category_name && p.category_slug ? ` / <a href="/posts?category=${encodeURIComponent(p.category_slug)}">${escapeHtml(p.category_name)}</a>` : ''} / ${escapeHtml(p.title)}</small></nav>
+      <nav aria-label="Breadcrumb"><small><a href="/">${escapeHtml(pick(locale, '首页', 'Home'))}</a> / <a href="/posts">${escapeHtml(pick(locale, 'SIM卡资讯', 'SIM Card News'))}</a>${p.category_name && p.category_slug ? ` / <a href="/posts?category=${encodeURIComponent(p.category_slug)}">${escapeHtml(localizedText(locale, p.category_name_zh, p.category_name_en, p.category_name))}</a>` : ''} / ${escapeHtml(p.title)}</small></nav>
       <div>
         <h1>${escapeHtml(p.title)}</h1>
-        <small>${escapeHtml(published)}</small>
+        <small>${escapeHtml(formatDate(published, locale))}</small>
         <div class="chip-row" style="margin-top:8px">
           <span class="btn">${escapeHtml(localeLabel(p.locale))}</span>
           ${p.category_name && p.category_slug ? `<a class="btn" href="${postsUrl(p.category_slug, normalizeLocale(p.locale))}">${escapeHtml(localizedText(locale, p.category_name_zh, p.category_name_en, p.category_name))}</a>` : ''}

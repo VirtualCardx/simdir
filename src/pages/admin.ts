@@ -239,29 +239,29 @@ function localeLabel(locale: string | null | undefined): string {
 }
 
 export async function adminLoginPage(env: Bindings, req: Request): Promise<Response> {
+  const user = await requireAdmin(env, req)
+  if (user) return redirect('/admin')
   const locale = resolveLocale(req)
   const canonical = new URL('/admin/login', env.APP_ORIGIN).toString()
   const body = `
-  ${adminHeader(env, req, locale, `<a class="btn" href="/">${escapeHtml(pick(locale, '返回前台', 'Back to site'))}</a>`)}
-  <main>
-    <section class="page-header">
-      <span class="eyebrow">Admin</span>
-      <div>
-        <h1>${escapeHtml(pick(locale, '登录管理后台', 'Sign in to admin'))}</h1>
-        <p>${escapeHtml(pick(locale, '统一管理国家页、供应商、套餐、文章和媒体资源。', 'Manage country pages, operators, products, posts, and media in one place.'))}</p>
-      </div>
-    </section>
-    <section class="card muted-panel" style="max-width:520px;margin:0 auto">
-      <form method="POST" action="/api/admin/auth/login">
-        <label><small>${escapeHtml(pick(locale, '邮箱', 'Email'))}</small><input class="input" type="email" name="email" required></label>
-        <div style="height:8px"></div>
-        <label><small>${escapeHtml(pick(locale, '密码', 'Password'))}</small><input class="input" type="password" name="password" required></label>
-        <div style="height:12px"></div>
-        <button class="btn primary" type="submit">${escapeHtml(pick(locale, '登录', 'Sign in'))}</button>
+  <main style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px">
+    <div style="width:100%;max-width:400px;text-align:center">
+      <h1 style="margin-bottom:8px">${escapeHtml(env.SITE_NAME || 'Admin')}</h1>
+      <p style="color:var(--muted);margin-bottom:32px">${escapeHtml(pick(locale, '登录管理后台', 'Sign in to admin'))}</p>
+      <form method="POST" action="/api/admin/auth/login" style="text-align:left">
+        <label style="display:block;margin-bottom:16px">
+          <small>${escapeHtml(pick(locale, '邮箱', 'Email'))}</small>
+          <input class="input" type="email" name="email" required style="width:100%;margin-top:4px" placeholder="admin@example.com" />
+        </label>
+        <label style="display:block;margin-bottom:24px">
+          <small>${escapeHtml(pick(locale, '密码', 'Password'))}</small>
+          <input class="input" type="password" name="password" required style="width:100%;margin-top:4px" />
+        </label>
+        <button class="btn primary" type="submit" style="width:100%">${escapeHtml(pick(locale, '登录', 'Sign in'))}</button>
       </form>
-    </section>
+      <div style="margin-top:32px;color:var(--muted)"><small>${escapeHtml(pick(locale, '仅限编辑/管理员使用', 'Editors and administrators only'))}</small></div>
+    </div>
   </main>
-  <footer><small>${escapeHtml(pick(locale, '仅限编辑/管理员使用。', 'Editors and administrators only.'))}</small></footer>
   `
   return html(
     layout(
@@ -423,9 +423,9 @@ export async function adminListPage(
                   const hasEn = Number((r as any).has_en ?? 0) === 1
                   const category = String((r as any).category_name ?? '')
                   const coverage = [hasZh ? '中文' : '', hasEn ? 'English' : ''].filter(Boolean).join(' / ') || '未设置'
-                  return `<tr><td>${escapeHtml(slug)}</td><td>${escapeHtml(zhTitle || '—')}</td><td>${escapeHtml(enTitle || '—')}</td><td>${escapeHtml(coverage)}</td><td>${escapeHtml(category || '未分类')}</td><td>${escapeHtml(statusLabel(status))}</td><td><small>${escapeHtml(updated)}</small></td><td><a class="btn" href="/admin/${entity}/${escapeHtml(String(r.id))}">编辑</a></td></tr>`
+                  return `<tr><td>${escapeHtml(slug)}</td><td>${escapeHtml(zhTitle || '—')}</td><td>${escapeHtml(enTitle || '—')}</td><td>${escapeHtml(coverage)}</td><td>${escapeHtml(category || '未分类')}</td><td>${escapeHtml(statusLabel(status))}</td><td><small>${escapeHtml(updated)}</small></td><td><a class="btn" href="/admin/${entity}/${escapeHtml(String(r.id))}">编辑</a> <form method="POST" action="/admin/${entity}/${escapeHtml(String(r.id))}/delete" style="display:inline" onsubmit="return confirm('确认删除？此操作不可撤销。')"><button class="btn" type="submit" style="color:var(--danger)">删除</button></form></td></tr>`
                 }
-                return `<tr><td>${escapeHtml(slug)}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(status ? statusLabel(status) : '—')}</td><td><small>${escapeHtml(updated)}</small></td><td><a class="btn" href="/admin/${entity}/${escapeHtml(String(r.id))}">编辑</a></td></tr>`
+                return `<tr><td>${escapeHtml(slug)}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(status ? statusLabel(status) : '—')}</td><td><small>${escapeHtml(updated)}</small></td><td><a class="btn" href="/admin/${entity}/${escapeHtml(String(r.id))}">编辑</a> <form method="POST" action="/admin/${entity}/${escapeHtml(String(r.id))}/delete" style="display:inline" onsubmit="return confirm('确认删除？此操作不可撤销。')"><button class="btn" type="submit" style="color:var(--danger)">删除</button></form></td></tr>`
               })
               .join('')}
           </tbody>

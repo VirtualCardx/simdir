@@ -106,9 +106,10 @@ small{color:var(--muted)}
 ul{margin:0;padding-left:20px}
 code{padding:2px 8px;border-radius:999px;background:rgba(214,236,240,.7);color:var(--primary-strong)}
 table{width:100%;border-collapse:collapse;background:transparent}
-th,td{padding:14px 12px;text-align:left;border-bottom:1px solid var(--border)}
-th{font-size:.84rem;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
-tbody tr:hover{background:rgba(214,236,240,.28)}
+th,td{padding:14px 12px;text-align:left;border-bottom:1px solid var(--border);max-width:220px;word-break:break-word;overflow-wrap:break-word}
+th{font-size:.84rem;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+tbody.hover-group:hover td{background:rgba(214,236,240,.28)}
+tbody:not(.hover-group)>tr:hover{background:rgba(214,236,240,.28)}
 footer{padding-top:8px;padding-bottom:30px;color:var(--muted)}
 form{display:grid;gap:0}
 .notice{border-width:1px;border-style:solid}

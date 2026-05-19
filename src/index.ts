@@ -27,7 +27,8 @@ import {
   adminSiteSettingsPage,
   adminSaveSiteSettings,
   adminMediaPage,
-  adminMediaUpload
+  adminMediaUpload,
+  adminDeleteEntity
 } from './pages/admin-edit'
 import { adminImportExportPage, apiAdminExport, apiAdminImport } from './pages/admin-import'
 import {
@@ -70,26 +71,31 @@ router.on('GET', '/admin/categories/new', async ({ req }) => adminEditCategoryPa
 router.on('POST', '/admin/categories/new', async ({ req }) => adminSaveCategory((req as any).env, req, null))
 router.on('GET', '/admin/categories/:id', async ({ req, params }) => adminEditCategoryPage((req as any).env, req, params.id))
 router.on('POST', '/admin/categories/:id', async ({ req, params }) => adminSaveCategory((req as any).env, req, params.id))
+router.on('POST', '/admin/categories/:id/delete', async ({ req, params }) => adminDeleteEntity((req as any).env, req, 'categories', params.id))
 router.on('GET', '/admin/countries', async ({ req }) => adminListPage((req as any).env, req, 'countries'))
 router.on('GET', '/admin/countries/new', async ({ req }) => adminEditCountryPage((req as any).env, req, null))
 router.on('POST', '/admin/countries/new', async ({ req }) => adminSaveCountry((req as any).env, req, null))
 router.on('GET', '/admin/countries/:id', async ({ req, params }) => adminEditCountryPage((req as any).env, req, params.id))
 router.on('POST', '/admin/countries/:id', async ({ req, params }) => adminSaveCountry((req as any).env, req, params.id))
+router.on('POST', '/admin/countries/:id/delete', async ({ req, params }) => adminDeleteEntity((req as any).env, req, 'countries', params.id))
 router.on('GET', '/admin/operators', async ({ req }) => adminListPage((req as any).env, req, 'operators'))
 router.on('GET', '/admin/operators/new', async ({ req }) => adminEditOperatorPage((req as any).env, req, null))
 router.on('POST', '/admin/operators/new', async ({ req }) => adminSaveOperator((req as any).env, req, null))
 router.on('GET', '/admin/operators/:id', async ({ req, params }) => adminEditOperatorPage((req as any).env, req, params.id))
 router.on('POST', '/admin/operators/:id', async ({ req, params }) => adminSaveOperator((req as any).env, req, params.id))
+router.on('POST', '/admin/operators/:id/delete', async ({ req, params }) => adminDeleteEntity((req as any).env, req, 'operators', params.id))
 router.on('GET', '/admin/products', async ({ req }) => adminListPage((req as any).env, req, 'products'))
 router.on('GET', '/admin/products/new', async ({ req }) => adminEditProductPage((req as any).env, req, null))
 router.on('POST', '/admin/products/new', async ({ req }) => adminSaveProduct((req as any).env, req, null))
 router.on('GET', '/admin/products/:id', async ({ req, params }) => adminEditProductPage((req as any).env, req, params.id))
 router.on('POST', '/admin/products/:id', async ({ req, params }) => adminSaveProduct((req as any).env, req, params.id))
+router.on('POST', '/admin/products/:id/delete', async ({ req, params }) => adminDeleteEntity((req as any).env, req, 'products', params.id))
 router.on('GET', '/admin/posts', async ({ req }) => adminListPage((req as any).env, req, 'posts'))
 router.on('GET', '/admin/posts/new', async ({ req }) => adminEditPostPage((req as any).env, req, null))
 router.on('POST', '/admin/posts/new', async ({ req }) => adminSavePost((req as any).env, req, null))
 router.on('GET', '/admin/posts/:id', async ({ req, params }) => adminEditPostPage((req as any).env, req, params.id))
 router.on('POST', '/admin/posts/:id', async ({ req, params }) => adminSavePost((req as any).env, req, params.id))
+router.on('POST', '/admin/posts/:id/delete', async ({ req, params }) => adminDeleteEntity((req as any).env, req, 'posts', params.id))
 router.on('GET', '/admin/settings', async ({ req }) => adminSiteSettingsPage((req as any).env, req))
 router.on('POST', '/admin/settings', async ({ req }) => adminSaveSiteSettings((req as any).env, req))
 

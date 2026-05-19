@@ -725,25 +725,22 @@ export async function searchPage(env: Bindings, req: Request): Promise<Response>
       <h2>${escapeHtml(pick(locale, '套餐结果', 'Plan results'))}</h2>
       <div class="table-wrap">
       <table>
-        <thead><tr><th>供应商</th><th>套餐</th><th>天数</th><th>流量</th><th>价格</th><th></th></tr></thead>
-        <tbody>
           ${products.length > 0 ? products
             .map((p) => {
               const data = p.is_unlimited ? '无限' : p.data_gb ? `${p.data_gb}GB` : '—'
               const price = `${p.price_currency} ${p.price_amount.toFixed(2)}`
               const operatorName = localizedText(locale, p.operator_name_zh, p.operator_name_en, p.operator_name)
               const productName = localizedText(locale, p.name_zh, p.name_en, p.name)
-              return `<tr>
+              return `<tbody class="hover-group"><tr><td colspan="5" style="border-bottom:none;padding-bottom:4px"><strong><a href="/product/${escapeHtml(p.slug)}">${escapeHtml(productName)}</a></strong></td></tr>
+              <tr>
                 <td><a href="/operator/${escapeHtml(p.operator_slug)}">${escapeHtml(operatorName)}</a></td>
-                <td><a href="/product/${escapeHtml(p.slug)}">${escapeHtml(productName)}</a></td>
                 <td>${p.days}</td>
                 <td>${escapeHtml(data)}</td>
                 <td>${escapeHtml(price)}</td>
                 <td><a class="btn primary" href="${escapeHtml(p.purchase_url)}" rel="nofollow noopener" target="_blank">去购买</a></td>
-              </tr>`
+              </tr></tbody>`
             })
-            .join('') : '<tr><td colspan="6"><small>暂无匹配套餐，请尝试国家名、供应商名或更短的关键词。</small></td></tr>'}
-        </tbody>
+            .join('') : '<tbody><tr><td colspan="5"><small>暂无匹配套餐，请尝试国家名、供应商名或更短的关键词。</small></td></tr></tbody>'}
       </table>
       </div>
     </section>
@@ -845,7 +842,7 @@ export async function productPage(env: Bindings, req: Request, slug: string): Pr
         <div class="card" style="flex:1;min-width:220px"><small>${escapeHtml(pick(locale, '价格', 'Price'))}</small><div><strong>${escapeHtml(price)}</strong></div></div>
       </div>
       <div style="height:12px"></div>
-      <a class="btn primary" href="${escapeHtml(String(p.purchase_url))}" rel="nofollow noopener" target="_blank">${escapeHtml(pick(locale, '去购买', 'Buy now'))}</a>
+      <a class="btn primary" href="${escapeHtml(String(p.purchase_url))}" rel="nofollow noopener" target="_blank">${escapeHtml(pick(locale, '购买', 'Buy'))}</a>
       <small style="display:block;margin-top:8px">${escapeHtml(pick(locale, '外链将在新窗口打开，价格以供应商页面为准。', 'External link opens in a new tab. Final price is determined by the operator.'))}</small>
     </section>
     <h2>${escapeHtml(pick(locale, '激活教程', 'Activation Guide'))}</h2>
@@ -953,8 +950,6 @@ export async function countryPage(env: Bindings, req: Request, slug: string): Pr
     <div class="card" aria-label="Products">
       <div class="table-wrap">
       <table>
-        <thead><tr><th>${escapeHtml(pick(locale, '供应商', 'Operator'))}</th><th>${escapeHtml(pick(locale, '套餐', 'Plan'))}</th><th>${escapeHtml(pick(locale, '天数', 'Days'))}</th><th>${escapeHtml(pick(locale, '流量', 'Data'))}</th><th>${escapeHtml(pick(locale, '热点', 'Hotspot'))}</th><th>${escapeHtml(pick(locale, '价格', 'Price'))}</th><th></th></tr></thead>
-        <tbody>
           ${products
             .map((p) => {
               const data = p.is_unlimited ? pick(locale, '无限', 'Unlimited') : p.data_gb ? `${p.data_gb}GB` : '—'
@@ -962,18 +957,17 @@ export async function countryPage(env: Bindings, req: Request, slug: string): Pr
               const price = `${p.price_currency} ${p.price_amount.toFixed(2)}`
               const operatorName = localizedText(locale, p.operator_name_zh, p.operator_name_en, p.operator_name)
               const productName = localizedText(locale, p.name_zh, p.name_en, p.name)
-              return `<tr>
+              return `<tbody class="hover-group"><tr><td colspan="6" style="border-bottom:none;padding-bottom:4px"><strong><a href="/product/${escapeHtml(p.slug)}">${escapeHtml(productName)}</a></strong></td></tr>
+              <tr>
                 <td><a href="/operator/${escapeHtml(p.operator_slug)}">${escapeHtml(operatorName)}</a></td>
-                <td>${escapeHtml(productName)}</td>
                 <td>${p.days}</td>
                 <td>${escapeHtml(data)}</td>
                 <td>${escapeHtml(hotspot)}</td>
                 <td>${escapeHtml(price)}</td>
-                <td><a class="btn primary" href="${escapeHtml(p.purchase_url)}" rel="nofollow noopener" target="_blank">${escapeHtml(pick(locale, '去购买', 'Buy now'))}</a></td>
-              </tr>`
+                <td><a class="btn primary" href="${escapeHtml(p.purchase_url)}" rel="nofollow noopener" target="_blank">${escapeHtml(pick(locale, '购买', 'Buy'))}</a></td>
+              </tr></tbody>`
             })
             .join('')}
-        </tbody>
       </table>
       </div>
     </div>
@@ -1126,26 +1120,21 @@ export async function operatorPage(env: Bindings, req: Request, slug: string): P
           <h2>${escapeHtml(pick(locale, '价格表', 'Pricing'))}</h2>
           <div class="table-wrap">
           <table>
-        <thead><tr><th>${escapeHtml(pick(locale, '套餐', 'Plan'))}</th><th>${escapeHtml(pick(locale, '国家', 'Country'))}</th><th>${escapeHtml(pick(locale, '天数', 'Days'))}</th><th>${escapeHtml(pick(locale, '流量', 'Data'))}</th><th>${escapeHtml(pick(locale, '网络', 'Network'))}</th><th>${escapeHtml(pick(locale, '价格', 'Price'))}</th><th></th></tr></thead>
-        <tbody>
           ${products
             .map((p) => {
               const data = p.is_unlimited ? pick(locale, '无限', 'Unlimited') : p.data_gb ? `${p.data_gb}GB` : '—'
-              const net = p.network_type ?? '—'
               const price = `${p.price_currency} ${p.price_amount.toFixed(2)}`
               const productName = localizedText(locale, p.name_zh, p.name_en, p.name)
-              return `<tr>
-                <td><a href="/product/${escapeHtml(p.slug)}">${escapeHtml(productName)}</a></td>
+              return `<tbody class="hover-group"><tr><td colspan="5" style="border-bottom:none;padding-bottom:4px"><strong><a href="/product/${escapeHtml(p.slug)}">${escapeHtml(productName)}</a></strong></td></tr>
+              <tr>
                 <td>${escapeHtml(p.country_iso2.toUpperCase())}</td>
                 <td>${p.days}</td>
                 <td>${escapeHtml(data)}</td>
-                <td>${escapeHtml(net)}</td>
                 <td>${escapeHtml(price)}</td>
-                <td><a class="btn primary" href="${escapeHtml(p.purchase_url)}" rel="nofollow noopener" target="_blank">${escapeHtml(pick(locale, '去购买', 'Buy now'))}</a></td>
-              </tr>`
+                <td><a class="btn primary" href="${escapeHtml(p.purchase_url)}" rel="nofollow noopener" target="_blank">${escapeHtml(pick(locale, '购买', 'Buy'))}</a></td>
+              </tr></tbody>`
             })
             .join('')}
-        </tbody>
       </table>
           </div>
         </section>

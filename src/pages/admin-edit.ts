@@ -983,6 +983,7 @@ export async function adminEditCategoryPage(env: Bindings, req: Request, id: str
         <div class="admin-actions">
           <button class="btn primary" type="submit">保存</button>
           <a class="btn" href="/admin/categories">返回列表</a>
+          ${!isNew ? `<form method="POST" action="/admin/categories/${escapeHtml(String(id))}/delete" style="display:inline" onsubmit="return confirm('确认删除？此操作不可撤销。')"><button class="btn" type="submit" style="color:var(--danger)">删除</button></form>` : ''}
         </div>
       </form>
     </section>
@@ -1189,6 +1190,7 @@ export async function adminEditCountryPage(env: Bindings, req: Request, id: stri
         <div class="admin-actions">
           <button class="btn primary" type="submit">保存</button>
           <a class="btn" href="/admin/countries">返回列表</a>
+          ${!isNew ? `<form method="POST" action="/admin/countries/${escapeHtml(String(id))}/delete" style="display:inline" onsubmit="return confirm('确认删除？此操作不可撤销。')"><button class="btn" type="submit" style="color:var(--danger)">删除</button></form>` : ''}
         </div>
       </form>
     </section>
@@ -1428,6 +1430,7 @@ export async function adminEditOperatorPage(env: Bindings, req: Request, id: str
         <div class="admin-actions">
           <button class="btn primary" type="submit">保存</button>
           <a class="btn" href="/admin/operators">返回列表</a>
+          ${!isNew ? `<form method="POST" action="/admin/operators/${escapeHtml(String(id))}/delete" style="display:inline" onsubmit="return confirm('确认删除？此操作不可撤销。')"><button class="btn" type="submit" style="color:var(--danger)">删除</button></form>` : ''}
         </div>
       </form>
     </section>
@@ -1935,6 +1938,7 @@ export async function adminEditPostPage(env: Bindings, req: Request, id: string 
         <div class="admin-actions">
           <button class="btn primary" type="submit">保存</button>
           <a class="btn" href="/admin/posts">返回文章列表</a>
+          ${!isNew ? `<form method="POST" action="/admin/posts/${escapeHtml(String(id))}/delete" style="display:inline" onsubmit="return confirm('确认删除？此操作不可撤销。')"><button class="btn" type="submit" style="color:var(--danger)">删除</button></form>` : ''}
         </div>
       </form>
     </section>
@@ -2148,6 +2152,33 @@ async function uploadSiteIconToR2(env: Bindings, file: File, prefix: string, lab
   const key = `${prefix}/${new Date().toISOString().slice(0, 10)}/${ulid()}${ext}`
   await putObject(env, key, await file.arrayBuffer(), contentType)
   return key
+}
+
+type DeletableEntity = 'categories' | 'countries' | 'operators' | 'products' | 'posts'
+
+export async function adminDeleteEntity(env: Bindings, req: Request, entity: DeletableEntity, id: string): Promise<Response> {
+  const user = await requireAdmin(env, req)
+  if (!user) return unauthorized()
+  if (!id) return badRequest('Missing id')
+  const db = getDb(env.DB)
+  try {
+    if (entity === 'categories') {
+      await db.delete(schema.categories).where(eq(schema.categories.id, id))
+    } else if (entity === 'countries') {
+      await db.delete(schema.countries).where(eq(schema.countries.id, id))
+    } else if (entity === 'operators') {
+      await db.delete(schema.operators).where(eq(schema.operators.id, id))
+    } else if (entity === 'products') {
+      await db.delete(schema.products).where(eq(schema.products.id, id))
+    } else {
+      await db.delete(schema.posts).where(eq(schema.posts.id, id))
+    }
+    const referer = req.headers.get('referer') || `/admin/${entity}`
+    return redirect(referer)
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    return redirect(`/admin/${entity}?error=${encodeURIComponent(msg)}`)
+  }
 }
 
 function operatorEditLocation(id: string | null, entityId: string, error: string): string {

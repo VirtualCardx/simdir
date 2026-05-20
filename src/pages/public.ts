@@ -946,23 +946,21 @@ export async function countryPage(env: Bindings, req: Request, slug: string): Pr
     <h1>${escapeHtml(countryName)} eSIM</h1>
     ${c.hero_image_key ? `<img src="${escapeHtml(ogImage ?? '')}" alt="${escapeHtml(countryName)} eSIM" loading="lazy" style="width:100%;max-height:320px;object-fit:cover;border-radius:12px;border:1px solid var(--b)" />` : ''}
     <section class="card" aria-label="Guide">${content}</section>
-    <h2>${escapeHtml(pick(locale, '推荐套餐', 'Recommended Plans'))}</h2>
+    <h2 style="margin-top:32px">${escapeHtml(pick(locale, '推荐套餐', 'Recommended Plans'))}</h2>
     <div class="card" aria-label="Products">
       <div class="table-wrap">
       <table>
           ${products
             .map((p) => {
               const data = p.is_unlimited ? pick(locale, '无限', 'Unlimited') : p.data_gb ? `${p.data_gb}GB` : '—'
-              const hotspot = p.supports_hotspot ? pick(locale, '支持', 'Supported') : pick(locale, '不支持', 'Not supported')
               const price = `${p.price_currency} ${p.price_amount.toFixed(2)}`
               const operatorName = localizedText(locale, p.operator_name_zh, p.operator_name_en, p.operator_name)
               const productName = localizedText(locale, p.name_zh, p.name_en, p.name)
-              return `<tbody class="hover-group"><tr><td colspan="6" style="border-bottom:none;padding-bottom:4px"><strong><a href="/product/${escapeHtml(p.slug)}">${escapeHtml(productName)}</a></strong></td></tr>
+              return `<tbody class="hover-group"><tr><td colspan="5" style="border-bottom:none;padding-bottom:4px"><strong><a href="/product/${escapeHtml(p.slug)}">${escapeHtml(productName)}</a></strong></td></tr>
               <tr>
                 <td><a href="/operator/${escapeHtml(p.operator_slug)}">${escapeHtml(operatorName)}</a></td>
                 <td>${p.days}</td>
                 <td>${escapeHtml(data)}</td>
-                <td>${escapeHtml(hotspot)}</td>
                 <td>${escapeHtml(price)}</td>
                 <td><a class="btn primary" href="${escapeHtml(p.purchase_url)}" rel="nofollow noopener" target="_blank">${escapeHtml(pick(locale, '购买', 'Buy'))}</a></td>
               </tr></tbody>`

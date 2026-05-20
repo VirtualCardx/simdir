@@ -220,7 +220,7 @@ export async function homePage(env: Bindings, req: Request): Promise<Response> {
       .from(schema.operators)
       .where(eq(schema.operators.status, 'published'))
       .orderBy(orderDesc(schema.operators.updatedAt))
-      .limit(12),
+      .limit(8),
     db
       .select({
         name: schema.categories.name,
@@ -296,6 +296,7 @@ export async function homePage(env: Bindings, req: Request): Promise<Response> {
             })
             .join('')}
         </div>
+        <div style="margin-top:12px"><a class="btn" href="/operators">${escapeHtml(pick(locale, '查看全部服务商', 'View all providers'))}</a></div>
         </section>
       </section>
       <section class="card">
